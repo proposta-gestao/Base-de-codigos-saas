@@ -51,6 +51,9 @@
         _serviceRegistry.register('permissions', new PermissionsService({ database: dbAdapter, eventBus: _eventBus }));
     }
     
+    // Configura Dashboard Renderer
+    const _dashboardRenderer = typeof DashboardRenderer !== 'undefined' ? new DashboardRenderer(_eventBus) : null;
+    
     // Congela os helpers injetados antes do bootstrap
     const _helpers = Object.freeze({
         currency: typeof CurrencyHelper !== 'undefined' ? Object.freeze(CurrencyHelper) : {},
@@ -90,10 +93,15 @@
             value: _serviceRegistry,
             writable: false,
             configurable: false
+        },
+        Dashboard: {
+            value: _dashboardRenderer,
+            writable: false,
+            configurable: false
         }
     });
 
-    // 3. Sinaliza conclusão
+    // 3. Inicializar configurações (Legado -> Core)
     _eventBus.emit('core.bootstrap_complete', { timestamp: Date.now() });
     
     console.log('[River Core] Bootstrap concluído: EventBus, ConfigManager e ModuleRegistry ativos e protegidos.');
