@@ -27,6 +27,29 @@
     if (typeof createModalComponent === 'function') {
         _componentRegistry.register('modal', createModalComponent());
     }
+
+    // Configura e Registra Serviços
+    const _serviceRegistry = new ServiceRegistry();
+    
+    // 1. Infraestrutura
+    const dbAdapter = typeof DatabaseAdapter !== 'undefined' ? new DatabaseAdapter({ config: _configManager, eventBus: _eventBus }) : null;
+    const authAdapter = typeof AuthAdapter !== 'undefined' ? new AuthAdapter({ config: _configManager, eventBus: _eventBus }) : null;
+    const storageAdapter = typeof StorageAdapter !== 'undefined' ? new StorageAdapter({ config: _configManager, eventBus: _eventBus }) : null;
+    
+    if (dbAdapter) _serviceRegistry.register('database', dbAdapter);
+    if (authAdapter) _serviceRegistry.register('auth', authAdapter);
+    if (storageAdapter) _serviceRegistry.register('storage', storageAdapter);
+
+    // 2. Domínios (Injetando a infraestrutura que precisam)
+    if (typeof TenantService !== 'undefined' && dbAdapter) {
+        _serviceRegistry.register('tenant', new TenantService({ database: dbAdapter, eventBus: _eventBus }));
+    }
+    if (typeof UsersService !== 'undefined' && dbAdapter) {
+        _serviceRegistry.register('users', new UsersService({ database: dbAdapter, eventBus: _eventBus }));
+    }
+    if (typeof PermissionsService !== 'undefined' && dbAdapter) {
+        _serviceRegistry.register('permissions', new PermissionsService({ database: dbAdapter, eventBus: _eventBus }));
+    }
     
     // Congela os helpers injetados antes do bootstrap
     const _helpers = Object.freeze({
@@ -60,6 +83,11 @@
         },
         Components: {
             value: _componentRegistry,
+            writable: false,
+            configurable: false
+        },
+        Services: {
+            value: _serviceRegistry,
             writable: false,
             configurable: false
         }
