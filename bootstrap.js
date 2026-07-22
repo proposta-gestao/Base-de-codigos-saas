@@ -15,6 +15,7 @@
     const _eventBus = new EventBus();
     const _configManager = new ConfigManager(_eventBus);
     const _registry = new ModuleRegistry(_eventBus);
+    const _viewRegistry = typeof ViewRegistry !== 'undefined' ? new ViewRegistry() : null;
     
     // Configura e Registra Componentes
     const _componentRegistry = new ComponentRegistry();
@@ -96,6 +97,11 @@
         },
         Dashboard: {
             value: _dashboardRenderer,
+            writable: false,
+            configurable: false
+        },
+        Views: {
+            value: _viewRegistry,
             writable: false,
             configurable: false
         }
