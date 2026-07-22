@@ -14,12 +14,25 @@
     // 1. Instancia infraestrutura interna (não acessível livremente)
     const _eventBus = new EventBus();
     const _configManager = new ConfigManager(_eventBus);
-    const _moduleRegistry = new ModuleRegistry(_eventBus);
+    const _registry = new ModuleRegistry(_eventBus);
+    
+    // Congela os helpers injetados antes do bootstrap
+    const _helpers = Object.freeze({
+        currency: typeof CurrencyHelper !== 'undefined' ? Object.freeze(CurrencyHelper) : {},
+        date: typeof DateHelper !== 'undefined' ? Object.freeze(DateHelper) : {},
+        validation: typeof ValidationHelper !== 'undefined' ? Object.freeze(ValidationHelper) : {},
+        string: typeof StringHelper !== 'undefined' ? Object.freeze(StringHelper) : {}
+    });
 
-    // 2. Expõe os getters de forma congelada e protegida para evitar mutações globais (ex: window.RiverCore.EventBus = ...)
+    // 2. Travar a infraestrutura na Window (Fonte Única de Verdade)
     Object.defineProperties(window.RiverCore, {
         getEventBus: {
             value: () => _eventBus,
+            writable: false,
+            configurable: false
+        },
+        getModules: {
+            value: () => _registry,
             writable: false,
             configurable: false
         },
@@ -28,8 +41,8 @@
             writable: false,
             configurable: false
         },
-        getModules: {
-            value: () => _moduleRegistry,
+        Helpers: {
+            value: _helpers,
             writable: false,
             configurable: false
         }
