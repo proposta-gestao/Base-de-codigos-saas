@@ -16,6 +16,18 @@
     const _configManager = new ConfigManager(_eventBus);
     const _registry = new ModuleRegistry(_eventBus);
     
+    // Configura e Registra Componentes
+    const _componentRegistry = new ComponentRegistry();
+    if (typeof createToastComponent === 'function') {
+        _componentRegistry.register('toast', createToastComponent());
+    }
+    if (typeof createLoadingComponent === 'function') {
+        _componentRegistry.register('loading', createLoadingComponent());
+    }
+    if (typeof createModalComponent === 'function') {
+        _componentRegistry.register('modal', createModalComponent());
+    }
+    
     // Congela os helpers injetados antes do bootstrap
     const _helpers = Object.freeze({
         currency: typeof CurrencyHelper !== 'undefined' ? Object.freeze(CurrencyHelper) : {},
@@ -43,6 +55,11 @@
         },
         Helpers: {
             value: _helpers,
+            writable: false,
+            configurable: false
+        },
+        Components: {
+            value: _componentRegistry,
             writable: false,
             configurable: false
         }
