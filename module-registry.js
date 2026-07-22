@@ -89,7 +89,18 @@ class ModuleRegistry {
         }
 
         try {
-            mod.definition.initialize();
+            // Constrói o contexto da arquitetura (Core Sandbox) para injetar no módulo
+            // Assumimos que o RiverCore global já está instanciado no momento da inicialização.
+            const context = {
+                eventBus: typeof RiverCore !== 'undefined' ? RiverCore.EventBus : this.eventBus,
+                services: typeof RiverCore !== 'undefined' ? RiverCore.Services : null,
+                components: typeof RiverCore !== 'undefined' ? RiverCore.Components : null,
+                config: typeof RiverCore !== 'undefined' ? RiverCore.Config : null,
+                dashboard: typeof RiverCore !== 'undefined' ? RiverCore.Dashboard : null,
+                modules: this
+            };
+
+            mod.definition.initialize(context);
             mod.state = 'initialized';
             this.eventBus.emit('module.initialized', { id });
         } catch (error) {
