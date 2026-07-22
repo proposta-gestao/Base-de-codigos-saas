@@ -1,0 +1,36 @@
+{
+  "rewrites": [
+    {
+      "source": "/apresentacao/:slug",
+      "destination": "/apresentacoes/:slug/index.html"
+    },
+    {
+      "source": "/master-saas",
+      "destination": "/admin-saas.html"
+    },
+    {
+      "source": "/:loja/painel-gestao",
+      "destination": "/admin.html"
+    },
+    {
+      "source": "/:loja/atendente",
+      "destination": "/atendente.html"
+    },
+    {
+      "source": "/:loja/cardapio",
+      "destination": "/cardapio.html"
+    },
+    {
+      "source": "/:loja/agendar",
+      "destination": "/agendamento.html"
+    },
+    {
+      "source": "/:loja/loja",
+      "destination": "/loja.html"
+    },
+    {
+      "source": "/:loja([^.]+)",
+      "destination": "/cardapio.html"
+    }
+  ]
+}

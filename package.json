@@ -1,0 +1,11 @@
+{
+  "name": "river-tech-gestao",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node server.js"
+  },
+  "devDependencies": {
+    "supabase": "^2.95.6"
+  }
+}

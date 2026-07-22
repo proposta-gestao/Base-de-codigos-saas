@@ -1,0 +1,2120 @@
+
+<!DOCTYPE html>
+<html lang="pt-br" class="tenant-loading">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>Admin | RiverTech</title>
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192x192.png">
+    <style>
+        html.tenant-loading body > :not(.tenant-loader) {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            user-select: none !important;
+        }
+        html.tenant-loading .tenant-loader {
+            position: fixed !important;
+            inset: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background: #080808 !important;
+            color: #fff !important;
+            z-index: 99999 !important;
+        }
+        html.tenant-ready .tenant-loader {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            position: fixed !important;
+            inset: 0 !important;
+            display: none !important;
+        }
+        .tenant-loader {
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 99999 !important;
+        }
+        /* Esconder TODAS as tabs dependentes de modulo por padrao para evitar flash */
+        .admin-tabs .tab-btn {
+            display: none !important;
+        }
+        .admin-tabs .tab-btn.module-visible {
+            display: flex !important;
+        }
+    </style>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="design-tokens.css">
+    <link rel="stylesheet" href="admin.css?v=2.2">
+    <link rel="stylesheet" href="admin-agenda.css" id="agenda-css" disabled>
+    <link rel="stylesheet" href="admin-loja.css" id="loja-css" disabled>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Login Screen -->
+    <div class="login-screen" id="loginScreen">
+        <div class="login-card">
+            <h1>RiverTech</h1>
+            <p>Painel de Administração</p>
+            <div class="form-group">
+                <label for="loginEmail">E-mail</label>
+                <input type="email" id="loginEmail" placeholder="admin@email.com">
+            </div>
+            <div class="form-group">
+                <label for="loginSenha">Senha</label>
+                <input type="password" id="loginSenha" placeholder="••••••••">
+            </div>
+            <button class="btn-login" id="btnLogin">Entrar</button>
+            <p class="login-error" id="loginError"></p>
+        </div>
+    </div>
+
+    <!-- Admin Layout -->
+    <div class="admin-layout" id="adminLayout">
+        <div class="admin-topbar">
+            <header class="admin-header">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button id="btnMobileMenu" class="btn-mobile-toggle">☰</button>
+                    <h1><span class="brand-name header-brand-name">RiverTech</span><span class="admin-header-label">Admin</span></h1>
+                </div>
+                <div class="admin-header-actions">
+                    <a href="cardapio" class="btn-link-cardapio" target="_blank" id="btnVisualizarLink">
+                        <span class="d-none d-md-inline">Ver Cardápio ↗</span>
+                        <span class="d-md-none">Cardápio</span>
+                    </a>
+                    <button class="btn-logout" id="btnLogout">
+                        <span>Sair</span><span class="d-none d-md-inline"> 👋</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Popup de Ativacao de Alertas Sonoros (fullscreen overlay) -->
+            <div id="soundAlertBar" class="sound-alert-overlay" style="display: none;">
+                <div class="sound-alert-card">
+                    <div class="sound-alert-icon">🔔</div>
+                    <h2 class="sound-alert-title">Ativar Alertas Sonoros</h2>
+                    <p class="sound-alert-desc">Para receber notificações sonoras quando um novo agendamento for realizado, clique no botão abaixo.</p>
+                    <button class="sound-alert-btn" id="btnAtivarSom">
+                        <span>🔊</span> Ativar Alertas
+                    </button>
+                    <p class="sound-alert-hint">Seu navegador precisa de uma interação para permitir sons.</p>
+                </div>
+            </div>
+
+
+            <nav class="admin-tabs">
+                <button class="tab-btn active" data-tab="dashboard" id="nav-dashboard">📊 Visão Geral</button>
+                <button class="tab-btn" data-tab="configuracoes" id="nav-configuracoes">⚙️ Configurações</button>
+                <button class="tab-btn tab-btn--premium" data-tab="area-premium" id="nav-area-premium" style="display:none;">👑 Área Premium</button>
+            </nav>
+        </div>
+
+        <div class="admin-content-wrapper">
+
+            <!-- Dashboard Tab -->
+            <div class="tab-content active" id="tab-dashboard">
+                <div class="admin-toolbar" style="margin-bottom: 1rem; justify-content: center;">
+                    <h2>Vendas e Performances</h2>
+                </div>
+
+                <!-- Navegação Principal do Dashboard -->
+                <div class="admin-subtabs" style="margin-bottom: 2rem;">
+                    <button class="subtab-btn active" data-subtab="dashboard-operacional">🏠 Visão Geral</button>
+                    <button class="subtab-btn" data-subtab="dashboard-metricas">📊 Métricas e Performance</button>
+                </div>
+
+                <!-- Subtab: Visão Geral (Operacional) -->
+                <div class="subtab-content active" id="subtab-dashboard-operacional">
+                    
+                    <div class="admin-toolbar" style="margin-bottom: 1.5rem; justify-content: center;">
+                        <div class="admin-subtabs" style="margin-bottom: 0;">
+                            <button class="subtab-btn active" id="btnModoHojeOp" onclick="setModoDashboard('hoje-op')">Hoje (Op)</button>
+                            <button class="subtab-btn" id="btnModoOntemOp" onclick="setModoDashboard('ontem-op')">Ontem (Op)</button>
+                            <button class="subtab-btn" id="btnModoGeral" onclick="setModoDashboard('geral')">Visão Geral</button>
+                        </div>
+                    </div>
+
+                    <!-- Info Período Operacional -->
+                    <div id="infoPeriodoOperacional" class="stock-alert-panel" style="display: none; margin-bottom: 1rem; background: rgba(229, 178, 93, 0.1); border-color: var(--primary);">
+                        <p style="margin: 0; color: var(--primary); font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            🕒 <span id="txtPeriodoOperacional">Período Operacional Ativo</span>
+                        </p>
+                    </div>
+
+                    <div class="stats-row" id="dashboardStatsRow">
+                        <div class="stat-card">
+                            <div class="stat-label">Faturamento Total</div>
+                            <div class="stat-value" id="dashTotalValue" style="color:var(--success)">R$ 0,00</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Pedidos Realizados</div>
+                            <div class="stat-value" id="dashTotalOrders">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Total de Itens</div>
+                            <div class="stat-value" id="dashTotalItems">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Ticket Médio</div>
+                            <div class="stat-value" id="dashAvgTicket" style="color:var(--primary)">R$ 0,00</div>
+                        </div>
+                    </div>
+
+                    <!-- Filtros de Busca -->
+                    <div class="dashboard-filters">
+                        <div class="filters-header">
+                            <span class="filters-title">🔎 Filtrar Pedidos</span>
+                        </div>
+                        <div class="filters-body">
+                            <div class="filter-row">
+                                <div class="filter-group filter-group--date">
+                                    <label for="filtroDataInicio">📅 Período</label>
+                                    <div class="filter-date-range">
+                                        <input type="date" id="filtroDataInicio" title="Data inicial">
+                                        <span class="date-separator">a</span>
+                                        <input type="date" id="filtroDataFim" title="Data final">
+                                    </div>
+                                </div>
+                                <div class="filter-group">
+                                    <label for="filtroCliente">👤 Cliente</label>
+                                    <input type="text" id="filtroCliente" placeholder="Nome ou celular...">
+                                </div>
+                                <div class="filter-group">
+                                    <label for="filtroAtendente" id="labelFiltroAtendente">👨‍💼 Atendente</label>
+                                    <select id="filtroAtendente">
+                                        <option value="">Todos os atendentes</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group filter-group--range">
+                                    <label>💰 Valor (R$)</label>
+                                    <div class="filter-value-range">
+                                        <input type="number" id="filtroValorMin" min="0" step="0.01" placeholder="Mín.">
+                                        <span class="date-separator">—</span>
+                                        <input type="number" id="filtroValorMax" min="0" step="0.01" placeholder="Máx.">
+                                    </div>
+                                </div>
+                                <div class="filter-group filter-group--status">
+                                    <label>🟡 Status</label>
+                                    <select id="filtroStatus">
+                                        <option value="">Todos os status</option>
+                                        <option value="pendente">Pendente</option>
+                                        <option value="concluido">Concluído</option>
+                                        <option value="cancelado">Cancelado</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="filters-actions">
+                                <button class="btn-cancel" id="btnLimparFiltros" style="width: 100%; justify-content: center;">✕ Limpar filtros</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="admin-toolbar" style="margin-top: 1.5rem;">
+                        <h2>Pedidos <span id="filtroContador" style="font-size:0.85rem;color:var(--text-muted);font-weight:400;"></span></h2>
+                    </div>
+                    <div class="admin-table-wrapper">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Cliente</th>
+                                    <th>Atendente</th>
+                                    <th>Status</th>
+                                    <th>Itens</th>
+                                    <th>Total</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pedidosBody">
+                                <tr>
+                                    <td colspan="7" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhum pedido encontrado.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Subtab: Métricas e Performance (Analítico) -->
+                <div class="subtab-content" id="subtab-dashboard-metricas">
+                    <div class="admin-toolbar" style="margin-top: 0.5rem; justify-content: center; flex-direction: column; gap: 15px;">
+                        <h2>Análise Estratégica</h2>
+                        <div class="metrics-selectors">
+                            <select id="selectAgrupamentoMetricas" class="admin-select" onchange="atualizarGraficoMetricas()">
+                                <option value="dia">📅 Por Dia</option>
+                                <option value="semana">🗓️ Por Dia da Semana</option>
+                                <option value="mes">📆 Por Mês</option>
+                                <option value="hora">🕒 Por Horário</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="chart-container" style="position: relative; height:400px; width:100%; background: var(--bg-card); border-radius: var(--radius); padding: 1.5rem; border: 1px solid var(--border-color); margin-bottom: 2rem;">
+                        <canvas id="chartMetricas"></canvas>
+                    </div>
+
+                    <!-- Frase de Insight Inteligente -->
+                    <div id="insightFraseWrapper" class="stock-alert-panel" style="margin-bottom: 2rem; background: rgba(229, 178, 93, 0.05); border-color: var(--primary);">
+                        <p style="margin: 0; color: var(--text-color); font-weight: 500; font-style: italic; font-size: 1.1rem; text-align: center;">
+                            ✨ <span id="txtInsightInteligente">Analisando seus dados para gerar recomendações...</span>
+                        </p>
+                    </div>
+
+                    <!-- Seção: Tempo -->
+                    <div id="section-metricas-tempo">
+                        <h3 class="metrics-section-title">🕒 Análise de Tempo</h3>
+                        <div class="insights-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                            <div class="stat-card" style="border-left: 4px solid var(--primary);">
+                                <div class="stat-label">🔥 Horário de Pico</div>
+                                <div class="stat-value" id="insightMelhorHora" style="font-size: 1.2rem;">--</div>
+                                <div class="stat-label" id="txtInsightHora" style="font-size: 0.8rem; margin-top: 5px;">Carregando...</div>
+                            </div>
+                            <div class="stat-card" style="border-left: 4px solid var(--success);">
+                                <div class="stat-label">🏆 Melhor Dia da Semana</div>
+                                <div class="stat-value" id="insightMelhorDia" style="font-size: 1.2rem;">--</div>
+                                <div class="stat-label" id="txtInsightMelhor" style="font-size: 0.8rem; margin-top: 5px;">Carregando...</div>
+                            </div>
+                            <div class="stat-card" style="border-left: 4px solid var(--danger);">
+                                <div class="stat-label">📉 Pior Dia da Semana</div>
+                                <div class="stat-value" id="insightPiorDia" style="font-size: 1.2rem;">--</div>
+                                <div class="stat-label" id="txtInsightPior" style="font-size: 0.8rem; margin-top: 5px;">Carregando...</div>
+                            </div>
+                        </div>
+                    </div>
+ 
+                    <!-- Seção: Performance de Vendas -->
+                    <div id="section-metricas-performance">
+                        <h3 class="metrics-section-title">💰 Performance de Vendas</h3>
+                        <div class="insights-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                            <div class="stat-card" style="border-left: 4px solid var(--warning);">
+                                <div class="stat-label">🎫 Ticket Médio</div>
+                                <div class="stat-value" id="insightTicketMedio" style="font-size: 1.2rem;">R$ 0,00</div>
+                                <div class="stat-label" id="txtTicketMedio" style="font-size: 0.8rem; margin-top: 5px;">Média por pedido</div>
+                            </div>
+                            <div class="stat-card" style="border-left: 4px solid var(--primary);">
+                                <div class="stat-label">📊 Média Pedidos/Dia</div>
+                                <div class="stat-value" id="insightMediaPedidos" style="font-size: 1.2rem;">0</div>
+                                <div class="stat-label" id="txtMediaPedidos" style="font-size: 0.8rem; margin-top: 5px;">No período filtrado</div>
+                            </div>
+                            <div class="stat-card" style="border-left: 4px solid var(--danger);">
+                                <div class="stat-label">🚫 Taxa de Cancelamento</div>
+                                <div class="stat-value" id="insightTaxaCancelamento" style="font-size: 1.2rem;">0%</div>
+                                <div class="stat-label" id="txtTaxaCancelamento" style="font-size: 0.8rem; margin-top: 5px;">Pedidos cancelados</div>
+                            </div>
+                        </div>
+                    </div>
+ 
+                    <!-- Seção: Top Performance -->
+                    <div id="section-metricas-destaques">
+                        <h3 class="metrics-section-title">⭐ Destaques</h3>
+                        <div class="insights-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                            <div class="stat-card" style="border-left: 4px solid #e5b25d;">
+                                <div class="stat-label" id="labelProdutoTop">🍎 Produto Estrela</div>
+                                <div class="stat-value" id="insightProdutoTop" style="font-size: 1.2rem;">--</div>
+                                <div class="stat-label" id="txtProdutoTop" style="font-size: 0.8rem; margin-top: 5px;">Mais vendido (Qtd)</div>
+                            </div>
+                            <div class="stat-card" style="border-left: 4px solid #e5b25d;">
+                                <div class="stat-label" id="labelCategoriaTop">📂 Categoria Líder</div>
+                                <div class="stat-value" id="insightCategoriaTop" style="font-size: 1.2rem;">--</div>
+                                <div class="stat-label" id="txtCategoriaTop" style="font-size: 0.8rem; margin-top: 5px;">Maior faturamento</div>
+                            </div>
+                            <div class="stat-card" style="border-left: 4px solid var(--success);">
+                                <div class="stat-label">📅 Top 3 Dias (Faturamento)</div>
+                                <div class="stat-value" id="insightTopDias" style="font-size: 0.9rem; text-align: left; line-height: 1.4;">
+                                    1. --<br>
+                                    2. --<br>
+                                    3. --
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+
+
+            <!-- Configurações Tab -->
+            <div class="tab-content" id="tab-configuracoes">
+                <div class="admin-toolbar" style="margin-bottom: 1rem; justify-content: center;">
+                    <h2>Configurações do Sistema</h2>
+                </div>
+                <div class="produtos-toolbar" style="margin-bottom: 1.5rem; overflow-x: auto; overflow-y: hidden; white-space: nowrap; padding-bottom: 4px;">
+                    <div class="admin-subtabs" style="margin-bottom: 0; min-width: max-content;">
+                        <button class="subtab-btn active" data-subtab="config-dados-empresa">Dados da Empresa</button>
+                        <button class="subtab-btn" data-subtab="config-visual">Personalização Visual</button>
+                        <button class="subtab-btn" data-subtab="config-frete" id="nav-sub-frete">Frete e Entrega</button>
+                        <button class="subtab-btn" data-subtab="config-equipe">Equipe / Atendentes</button>
+                        <button class="subtab-btn" data-subtab="config-whatsapp">WhatsApp</button>
+                    </div>
+                </div>
+
+                <div class="subtab-content active" id="subtab-config-dados-empresa">
+                <!-- Store Address -->
+                <div class="config-card">
+                    <div class="config-card-header">
+                        <h2>🏢 Dados da Empresa</h2>
+                        <button class="btn-primary" id="btnSalvarConfig">Salvar Configurações</button>
+                    </div>
+                    <div class="config-card-body">
+                        <div class="form-row">
+                            <div class="form-group" style="flex:2">
+                                <label for="confNomeLoja">Nome da Loja</label>
+                                <input type="text" id="confNomeLoja" placeholder="Ex: Minha Loja">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group" style="flex:0.4">
+                                <label for="confCep">CEP</label>
+                                <input type="text" id="confCep" placeholder="00000-000" maxlength="9">
+                            </div>
+                            <div class="form-group" style="flex:1.2">
+                                <label for="confLogradouro">Logradouro</label>
+                                <input type="text" id="confLogradouro" placeholder="Rua, Avenida...">
+                            </div>
+                            <div class="form-group" style="flex:0.3">
+                                <label for="confNumero">Nº</label>
+                                <input type="text" id="confNumero" placeholder="123">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group" style="flex:1">
+                                <label for="confBairro">Bairro</label>
+                                <input type="text" id="confBairro" placeholder="Bairro">
+                            </div>
+                            <div class="form-group" style="flex:1">
+                                <label for="confCidade">Cidade</label>
+                                <input type="text" id="confCidade" placeholder="Cidade">
+                            </div>
+                            <div class="form-group" style="flex:0.3">
+                                <label for="confEstado">UF</label>
+                                <input type="text" id="confEstado" placeholder="MG" maxlength="2">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group" style="flex:1">
+                                <label for="confComplemento">Complemento</label>
+                                <input type="text" id="confComplemento" placeholder="Apto, sala...">
+                            </div>
+                            <div class="form-group" style="flex:1.5">
+                                <label for="confReferencia">Ponto de Referência</label>
+                                <input type="text" id="confReferencia" placeholder="Ex: Próximo ao mercado X">
+                            </div>
+                        </div>
+
+                        <!-- Configuração de Dia Operacional -->
+                        <div class="form-row" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color); gap: 20px;">
+                            <div class="form-group" style="flex:1">
+                                <label for="confOpeningTime" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">🕒 Abertura do Dia</label>
+                                <input type="time" id="confOpeningTime" value="18:00" class="input-time-modern">
+                            </div>
+                            <div class="form-group" style="flex:1">
+                                <label for="confClosingTime" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">🕒 Fechamento do Dia</label>
+                                <input type="time" id="confClosingTime" value="02:00" class="input-time-modern">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div> <!-- Fechamento da sub-aba config-dados-empresa -->
+
+                <div class="subtab-content" id="subtab-config-visual">
+                <!-- Personalização Visual -->
+                <div class="config-card">
+                    <div class="config-card-header">
+                        <h2>🎨 Personalização Visual</h2>
+                        <button class="btn-primary" id="btnSalvarPersonalizacao">Salvar Visual</button>
+                    </div>
+                    <div class="config-card-body">
+                        <div class="form-row">
+                            <div class="form-group" style="flex:1">
+                                <label for="confBrandName">Nome da Marca </label>
+                                <input type="text" id="confBrandName" placeholder="Ex: RiverTech">
+                            </div>
+                            <div class="form-group" style="flex:1">
+                                <label for="confBrandSubtitle">Subtítulo</label>
+                                <input type="text" id="confBrandSubtitle" placeholder="Ex: Seu jogo em outro nível">
+                            </div>
+                        </div>
+
+                        <!-- Banner -->
+                        <div class="form-group" style="margin-top: 2rem;">
+                            <label>Banner do Cardápio</label>
+                            <div class="visual-upload-row">
+                                <div class="visual-preview" id="previewBanner">
+                                    <div class="visual-preview-placeholder">
+                                        <strong>🖼️ Banner</strong>
+                                        Recomendado: 1200x300px
+                                    </div>
+                                </div>
+                                <div class="visual-upload-controls">
+                                    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
+                                        <label for="uploadBanner" class="btn-upload-gallery highlight">📤 Fazer Upload</label>
+                                        <button class="btn-url-toggle" onclick="toggleUrlInput('containerBannerUrl')">🔗 Usar URL</button>
+                                    </div>
+                                    <input type="file" id="uploadBanner" accept="image/*" style="display:none;">
+
+                                    <!-- URL Input Container (Hidden) -->
+                                    <div id="containerBannerUrl" class="url-input-container" style="display:none;">
+                                        <div style="display:flex;gap:8px;">
+                                            <input type="text" id="confBannerUrl" placeholder="Cole a URL da imagem aqui..." style="flex:1;">
+                                            <button class="btn-sm btn-edit" id="btnAplicarUrlBanner">Aplicar</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Logo -->
+                        <div class="form-group" style="margin-top: 1.5rem;">
+                            <label>Logo da Marca</label>
+                            <div class="visual-upload-row">
+                                <div class="visual-preview visual-preview--logo" id="previewLogo">
+                                    <div class="visual-preview-placeholder">
+                                        <strong>🎯 Logo</strong>
+                                        500x500px
+                                    </div>
+                                </div>
+                                <div class="visual-upload-controls">
+                                    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
+                                        <label for="uploadLogo" class="btn-upload-gallery highlight">📤 Fazer Upload</label>
+                                        <button class="btn-url-toggle" onclick="toggleUrlInput('containerLogoUrl')">🔗 Usar URL</button>
+                                    </div>
+                                    <input type="file" id="uploadLogo" accept="image/*" style="display:none;">
+
+                                    <!-- URL Input Container (Hidden) -->
+                                    <div id="containerLogoUrl" class="url-input-container" style="display:none;">
+                                        <div style="display:flex;gap:8px;">
+                                            <input type="text" id="confLogoUrl" placeholder="Cole a URL da imagem aqui..." style="flex:1;">
+                                            <button class="btn-sm btn-edit" id="btnAplicarUrlLogo">Aplicar</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr class="modal-divider" style="margin: 2rem 0;">
+
+                        <!-- Cores da Loja (Premium) -->
+                        <div class="premium-theme-container">
+                            <div class="theme-header-premium">
+                                <div class="theme-title-wrap">
+                                    <h3>🎨 Identidade Visual</h3>
+                                    <p>Configure a paleta de cores que define a alma da sua marca.</p>
+                                </div>
+                                <div class="theme-actions-top">
+                                    <button class="btn-sm btn-outline" id="btnRestaurarTemaEmpresa">Restaurar Padrão</button>
+                                    <button class="btn-sm btn-primary" id="btnSalvarTemaEmpresa">Salvar Cores</button>
+                                </div>
+                            </div>
+
+                            <div class="theme-editor-layout">
+                                <!-- Inputs Column -->
+                                <div class="theme-inputs-column">
+                                    <div class="color-card-premium">
+                                        <div class="color-card-info">
+                                            <span class="color-tag">Sotaque</span>
+                                            <h4>Cor Primária</h4>
+                                            <p>Destaques no carrinho, preços de produtos, bordas em destaque e badges importantes.</p>
+                                        </div>
+                                        <div class="color-card-input">
+                                            <input type="color" id="confTemaPrimaria" oninput="previewTemaEmpresa()">
+                                            <input type="text" id="confTemaPrimariaHex" placeholder="#000000" maxlength="7">
+                                        </div>
+                                    </div>
+
+                                    <div class="color-card-premium">
+                                        <div class="color-card-info">
+                                            <span class="color-tag">Ação</span>
+                                            <h4>Cor dos Botões</h4>
+                                            <p>Fundo dos botões "Adicionar" ao carrinho, finalizar compra e ações principais do menu.</p>
+                                        </div>
+                                        <div class="color-card-input">
+                                            <input type="color" id="confTemaBotao" oninput="previewTemaEmpresa()">
+                                            <input type="text" id="confTemaBotaoHex" placeholder="#000000" maxlength="7">
+                                        </div>
+                                    </div>
+
+                                    <div class="color-card-premium">
+                                        <div class="color-card-info">
+                                            <span class="color-tag">Interação</span>
+                                            <h4>Cor de Hover (Botões)</h4>
+                                            <p>Cor que aparece quando o cliente passa o mouse sobre os botões.</p>
+                                        </div>
+                                        <div class="color-card-input">
+                                            <input type="color" id="confTemaHover" oninput="previewTemaEmpresa()">
+                                            <input type="text" id="confTemaHoverHex" placeholder="#000000" maxlength="7">
+                                        </div>
+                                    </div>
+
+                                    <div class="color-card-premium">
+                                        <div class="color-card-info">
+                                            <span class="color-tag">Texto</span>
+                                            <h4>Cor das Letras</h4>
+                                            <p>Cor dos textos em geral, como nomes de produtos, categorias e descrições na loja.</p>
+                                        </div>
+                                        <div class="color-card-input">
+                                            <input type="color" id="confTemaTexto" oninput="previewTemaEmpresa()">
+                                            <input type="text" id="confTemaTextoHex" placeholder="#000000" maxlength="7">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Preview Column -->
+                                <div class="theme-preview-column">
+                                    <div class="preview-device-frame">
+                                        <div class="preview-header">PRÉVIA EM TEMPO REAL</div>
+                                        <div class="preview-content-premium" id="empLivePreview">
+                                            <div class="preview-card-mockup">
+                                                <div class="mockup-image">
+                                                    <img src="https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&q=80&w=400" alt="Mockup">
+                                                    <span class="mockup-badge" id="empLiveBadge">PROMOÇÃO</span>
+                                                </div>
+                                                <div class="mockup-details">
+                                                    <h5 id="empLiveTitle">Produto Premium</h5>
+                                                    <p id="empLiveDesc">Descrição curta e elegante do seu melhor produto.</p>
+                                                    <div class="mockup-footer">
+                                                        <span class="mockup-price" id="empLivePrice">R$ 89,90</span>
+                                                        <button class="mockup-btn" id="empLiveBtn">Adicionar</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div> <!-- Fechamento da sub-aba config-visual -->
+
+                <div class="subtab-content" id="subtab-config-frete">
+                <!-- Frete e Entrega -->
+                <div class="config-card">
+                    <div class="config-card-header">
+                        <h2>🚚 Frete e Entrega</h2>
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <span style="font-size:0.9rem;color:var(--text-muted);">Habilitar entrega com frete</span>
+                            <label class="switch">
+                                <input type="checkbox" id="confFreteAtivo">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="config-card-body" id="freteZonasContainer" style="display:none;">
+                        <div class="admin-toolbar" style="margin-bottom:1rem;">
+                            <h3 style="font-size:1rem;margin:0;">Zonas de Entrega</h3>
+                            <button class="btn-primary btn-sm" id="btnNovaZona">+ Nova Zona</button>
+                        </div>
+                        <div class="admin-table-wrapper">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>Nome da Zona</th>
+                                        <th>Cidade</th>
+                                        <th>Bairros Atendidos</th>
+                                        <th>Taxa (R$)</th>
+                                        <th>Status</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="zonasBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                </div> <!-- Fechamento da sub-aba config-frete -->
+                
+                <!-- Subtab: Equipe / Atendentes -->
+                <div class="subtab-content" id="subtab-config-equipe">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <h2>👨‍💼 Gestão da Equipe</h2>
+                                <span class="badge" style="background: rgba(229,178,93,0.1); color: var(--primary); font-size: 0.75rem;">Acesso ao Painel de Pedidos</span>
+                            </div>
+                            <button class="btn-primary" onclick="abrirModalAtendente()">+ Novo Atendente</button>
+                        </div>
+                        <div class="config-card-body">
+                            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom: 1.5rem;">
+                                Cadastre os colaboradores que terão acesso ao painel de pedidos. Eles utilizarão o CPF e a senha definida aqui para entrar.
+                            </p>
+                            
+                            <div class="admin-table-wrapper">
+                                <table class="admin-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Nome</th>
+                                            <th>CPF (Login)</th>
+                                            <th>Criado em</th>
+                                            <th style="width: 150px; text-align: center;">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="atendentesListaBody">
+                                        <tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhum atendente cadastrado.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Subtab: WhatsApp -->
+                <div class="subtab-content" id="subtab-config-whatsapp">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <h2>💬 Configurações do WhatsApp</h2>
+                            <button class="btn-primary" id="btnSalvarWhatsapp">Salvar WhatsApp</button>
+                        </div>
+                        <div class="config-card-body">
+                            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom: 1.5rem;">
+                                Configure o redirecionamento do cliente ao WhatsApp após finalizar o pedido.
+                                Você pode ativar/desativar por tipo de retirada e personalizar a mensagem.
+                            </p>
+
+                            <!-- Número do WhatsApp -->
+                            <div class="form-group">
+                                <label for="confWhatsappNumero">Número do WhatsApp</label>
+                                <div class="wa-phone-input">
+                                    <span class="wa-phone-prefix">🇧🇷 +55</span>
+                                    <input type="text" id="confWhatsappNumero" placeholder="31999999999" maxlength="11" inputmode="numeric">
+                                </div>
+                                <small style="color:var(--text-muted);">Digite apenas DDD + número. Ex: 31999999999</small>
+                            </div>
+
+                            <!-- Toggles por tipo de retirada -->
+                            <div class="wa-toggles-section">
+                                <h3 style="font-size: 1rem; margin-bottom: 1rem; color: var(--color-text);">Enviar WhatsApp quando o cliente escolher:</h3>
+                                
+                                <div class="wa-toggle-row">
+                                    <div class="wa-toggle-info">
+                                        <span class="wa-toggle-icon">🍽️</span>
+                                        <div>
+                                            <strong>Pedido na Mesa</strong>
+                                            <small>Cliente está no local e pediu na mesa</small>
+                                        </div>
+                                    </div>
+                                    <label class="wa-switch">
+                                        <input type="checkbox" id="confWaMesa">
+                                        <span class="wa-slider"></span>
+                                    </label>
+                                </div>
+
+                                <div class="wa-toggle-row">
+                                    <div class="wa-toggle-info">
+                                        <span class="wa-toggle-icon">🏪</span>
+                                        <div>
+                                            <strong>Retirada no Local</strong>
+                                            <small>Cliente vai buscar o pedido</small>
+                                        </div>
+                                    </div>
+                                    <label class="wa-switch">
+                                        <input type="checkbox" id="confWaRetirada">
+                                        <span class="wa-slider"></span>
+                                    </label>
+                                </div>
+
+                                <div class="wa-toggle-row">
+                                    <div class="wa-toggle-info">
+                                        <span class="wa-toggle-icon">🚚</span>
+                                        <div>
+                                            <strong>Entrega</strong>
+                                            <small>Pedido será entregue no endereço do cliente</small>
+                                        </div>
+                                    </div>
+                                    <label class="wa-switch">
+                                        <input type="checkbox" id="confWaEntrega" checked>
+                                        <span class="wa-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Mensagem Personalizada — Layout Amigável -->
+                            <div class="wa-msg-section">
+                                <div class="wa-msg-header">
+                                    <div>
+                                        <h3>✍️ Mensagem do Pedido</h3>
+                                        <p>Monte o texto que será enviado no WhatsApp quando um cliente fizer um pedido. Use os botões abaixo para inserir os dados do pedido automaticamente.</p>
+                                    </div>
+                                    <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+                                        <button class="wa-premium-btn" id="btnResetWaTemplate" title="Restaura a mensagem para o formato original">
+                                            <span class="wa-btn-icon">🔄</span>
+                                            <span>Restaurar Padrão</span>
+                                        </button>
+                                        <button class="btn-primary" id="btnSalvarWhatsappFooter" style="font-size: 0.8rem; padding: 6px 14px; border-radius: 8px;">Salvar WhatsApp</button>
+                                    </div>
+                                </div>
+
+                                <!-- Dados do Pedido — Botões amigáveis -->
+                                <div class="wa-vars-bar">
+                                    <span class="wa-vars-label">📋 Dados do pedido — clique para inserir no texto:</span>
+                                    <div class="wa-placeholders-grid">
+                                        <button class="wa-placeholder-tag" data-ph="{{cliente_nome}}" draggable="true">👤 Nome do cliente</button>
+                                        <button class="wa-placeholder-tag" data-ph="{{cliente_telefone}}" draggable="true">📱 Telefone</button>
+                                        <button class="wa-placeholder-tag" data-ph="{{tipo_entrega}}" draggable="true">📍 Tipo de retirada</button>
+                                        <button class="wa-placeholder-tag" data-ph="{{endereco}}" draggable="true">🏠 Endereço</button>
+                                        <button class="wa-placeholder-tag" data-ph="{{itens}}" draggable="true">🛒 Lista de itens</button>
+                                        <button class="wa-placeholder-tag" data-ph="{{subtotal}}" draggable="true">💵 Subtotal</button>
+                                        <button class="wa-placeholder-tag" data-ph="{{desconto}}" draggable="true">🎟️ Desconto</button>
+                                        <button class="wa-placeholder-tag" data-ph="{{frete}}" draggable="true">📦 Frete</button>
+                                        <button class="wa-placeholder-tag" data-ph="{{total}}" draggable="true">💰 Total</button>
+                                        <button class="wa-placeholder-tag" data-ph="{{pagamento}}" draggable="true">💳 Forma de pagamento</button>
+                                    </div>
+                                </div>
+
+                                <div class="wa-editor-container">
+                                    <div class="wa-editor-toolbar">
+                                        <button type="button" class="wa-format-btn" onclick="document.execCommand('bold', false, null)" title="Negrito (Ctrl+B)"><b>B</b></button>
+                                        <button type="button" class="wa-format-btn" onclick="document.execCommand('italic', false, null)" title="Itálico (Ctrl+I)"><i>I</i></button>
+                                        <button type="button" class="wa-format-btn" onclick="document.execCommand('strikeThrough', false, null)" title="Riscado"><s>S</s></button>
+                                        <div class="wa-toolbar-divider"></div>
+                                        <span class="wa-toolbar-hint">Selecione o texto e clique para formatar</span>
+                                    </div>
+                                    <div id="confWhatsappTemplate" class="wa-template-editor" contenteditable="true" data-placeholder="Escreva aqui a mensagem que será enviada no WhatsApp..."></div>
+                                </div>
+                                <small class="wa-msg-hint">💡 Dica: Clique nos botões azuis acima ou <strong>arraste-os</strong> para dentro da caixa de texto.</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Subtabs de Premium movidos para Area Premium -->
+            </div>
+
+
+            <!-- ========================================= -->
+            <!-- Tab: Área Premium                         -->
+            <!-- ========================================= -->
+            <div class="tab-content" id="tab-area-premium">
+
+                <!-- Banner Header Premium -->
+                <div class="premium-area-header">
+                    <div class="premium-area-header-icon">👑</div>
+                    <div class="premium-area-header-text">
+                        <h2>Área Premium</h2>
+                        <p>Gerencie clientes VIP com acesso personalizado e cardápios exclusivos.</p>
+                    </div>
+                    <div class="premium-area-header-badge">VIP</div>
+                </div>
+
+                <!-- Sub-abas -->
+                <div class="produtos-toolbar" style="margin-bottom: 1.5rem; overflow-x: auto; overflow-y: hidden; white-space: nowrap; padding-bottom: 4px;">
+                    <div class="admin-subtabs" style="margin-bottom: 0; min-width: max-content;">
+                        <button class="subtab-btn active" data-subtab="config-clientes-premium" id="nav-sub-clientes-premium">👑 Clientes Premium</button>
+                        <button class="subtab-btn" data-subtab="config-perfis-cardapio" id="nav-sub-perfis-cardapio">📋 Perfis de Cardápio</button>
+                        <button class="subtab-btn" data-subtab="config-premium-dashboard" id="nav-sub-premium-dashboard">📊 Dashboard Premium</button>
+                    </div>
+                </div>
+
+                <!-- Subtab: Clientes Premium -->
+                <div class="subtab-content active" id="subtab-config-clientes-premium">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <h2>👑 Clientes Premium</h2>
+                                <span class="badge" style="background: rgba(229,178,93,0.1); color: var(--primary); font-size: 0.75rem;">Login VIP + Teto de Gastos</span>
+                            </div>
+                            <button class="btn-primary" onclick="abrirModalClientePremium()">+ Novo Cliente</button>
+                        </div>
+                        <div class="config-card-body">
+                            <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom: 1.5rem;">
+                                Cadastre clientes especiais (VIP, funcionários, diretoria) com acesso a cardápios personalizados e limites de gastos.
+                            </p>
+                            <div class="admin-table-wrapper">
+                                <table class="admin-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Nome</th>
+                                            <th>CPF</th>
+                                            <th>Tipo</th>
+                                            <th>Perfil</th>
+                                            <th>Teto Mensal</th>
+                                            <th>Consumido</th>
+                                            <th style="width: 120px; text-align: center;">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="clientesPremiumBody">
+                                        <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhum cliente premium cadastrado.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Subtab: Perfis de Cardápio -->
+                <div class="subtab-content" id="subtab-config-perfis-cardapio">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <h2>📋 Perfis de Cardápio</h2>
+                            </div>
+                            <button class="btn-primary" onclick="abrirModalPerfilCardapio()">+ Novo Perfil</button>
+                        </div>
+                        <div class="config-card-body">
+                            <div id="perfisCardapioLista">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Subtab: Dashboard Premium -->
+                <div class="subtab-content" id="subtab-config-premium-dashboard">
+                    <div class="config-card">
+                        <div class="config-card-header">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <h2>📊 Dashboard Premium</h2>
+                                <span class="badge" style="background: rgba(46, 204, 113, 0.1); color: var(--success); font-size: 0.75rem;">Visão Geral e Relatórios</span>
+                            </div>
+                            <div class="modal-actions" style="display:flex; gap: 10px;">
+                                <button class="btn-outline" onclick="window.__PREMIUM_DASH.imprimirRelatorioPremium()">🖨️ Imprimir PDF</button>
+                                <button class="btn-primary" onclick="window.__PREMIUM_DASH.exportarRelatorioPremiumExcel()" style="background-color: #217346; color: white; border-color: #217346;">📥 Exportar Excel</button>
+                            </div>
+                        </div>
+                        <div class="config-card-body">
+                            <!-- Filtros (Padrão Vendas e Performance) -->
+                            <div class="dashboard-filters premium-dashboard-filters" style="background: linear-gradient(135deg, rgba(229, 178, 93, 0.08) 0%, rgba(229, 178, 93, 0.02) 100%); border: 1px solid rgba(229, 178, 93, 0.25); border-radius: 12px; margin-bottom: 2rem; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.05);">
+                                <div class="filters-header" style="background: rgba(229, 178, 93, 0.05); border-bottom: 1.5px solid rgba(229, 178, 93, 0.2);">
+                                    <span class="filters-title" style="color: var(--primary); display: flex; align-items: center; gap: 8px;">👑 Filtrar Dashboard Premium</span>
+                                </div>
+                                <div class="filters-body">
+                                    <div class="filter-row">
+                                        
+                                        <div class="filter-group filter-group--date">
+                                            <label for="dashPremiumDataInicio" style="color: var(--primary);">📅 Período</label>
+                                            <div class="filter-date-range">
+                                                <input type="date" id="dashPremiumDataInicio" style="border: 1px solid rgba(229, 178, 93, 0.3); background: rgba(0,0,0,0.2);">
+                                                <span class="date-separator" style="color: var(--primary);">a</span>
+                                                <input type="date" id="dashPremiumDataFim" style="border: 1px solid rgba(229, 178, 93, 0.3); background: rgba(0,0,0,0.2);">
+                                            </div>
+                                        </div>
+
+                                        <div class="filter-group">
+                                            <label for="dashPremiumFiltroPerfil" style="color: var(--primary);">📋 Perfil</label>
+                                            <select id="dashPremiumFiltroPerfil" style="border: 1px solid rgba(229, 178, 93, 0.3); background: rgba(0,0,0,0.2);">
+                                                <option value="">Todos os perfis</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="filter-group filter-group--status">
+                                            <label for="dashPremiumFiltroStatus" style="color: var(--primary);">📊 Status</label>
+                                            <select id="dashPremiumFiltroStatus" style="border: 1px solid rgba(229, 178, 93, 0.3); background: rgba(0,0,0,0.2);">
+                                                <option value="">Todas (Abertas e Fechadas)</option>
+                                                <option value="aberta">Apenas Abertas</option>
+                                                <option value="fechada">Apenas Fechadas</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="filter-group">
+                                            <label for="dashPremiumFiltroCliente" style="color: var(--primary);">👑 Cliente VIP</label>
+                                            <input type="text" id="dashPremiumFiltroCliente" list="listaPremiumClientesVIP" placeholder="Digite o nome..." style="border: 1px solid rgba(229, 178, 93, 0.3); background: rgba(0,0,0,0.2); outline: none; width: 100%; color: var(--text-color); padding: 0.75rem; border-radius: 8px;">
+                                            <datalist id="listaPremiumClientesVIP"></datalist>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="filters-actions" style="border-top: 1px solid rgba(229, 178, 93, 0.2);">
+                                        <button class="btn-cancel" onclick="document.getElementById('dashPremiumDataInicio').value=''; document.getElementById('dashPremiumDataFim').value=''; document.getElementById('dashPremiumFiltroPerfil').value=''; document.getElementById('dashPremiumFiltroCliente').value=''; document.getElementById('dashPremiumFiltroStatus').value=''; window.__PREMIUM_DASH.carregarDashboardPremium();" style="border: 1px solid rgba(229, 178, 93, 0.3); color: var(--primary); background: transparent;">✕ Limpar filtros</button>
+                                        <button class="wa-premium-btn" onclick="window.__PREMIUM_DASH.carregarDashboardPremium()" style="padding: 10px 20px;">
+                                            <span class="wa-btn-icon">🔍</span> Filtrar Resultados
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Cards de Resumo -->
+                            <div class="dashboard-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                                <div class="stat-card" style="background: var(--bg-card); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-color); text-align: center;">
+                                    <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Total Consumido</div>
+                                    <div id="dashPremiumTotalGasto" style="font-size: 1.8rem; font-weight: bold; color: var(--primary);">R$ 0,00</div>
+                                </div>
+                                <div class="stat-card" style="background: var(--bg-card); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-color); text-align: center;">
+                                    <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Comandas Fechadas</div>
+                                    <div id="dashPremiumTotalComandas" style="font-size: 1.8rem; font-weight: bold; color: var(--text-color);">0</div>
+                                </div>
+                                <div class="stat-card" style="background: var(--bg-card); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border-color); text-align: center;">
+                                    <div style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Ticket Médio Premium</div>
+                                    <div id="dashPremiumTicketMedio" style="font-size: 1.8rem; font-weight: bold; color: var(--success);">R$ 0,00</div>
+                                </div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 2rem;">
+                                <!-- Ranking de Clientes -->
+                                <div class="ranking-section">
+                                    <h3 style="margin-bottom: 1rem; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">🏆 Top Clientes (Maior Consumo)</h3>
+                                    <div class="admin-table-wrapper" style="max-height: 300px; overflow-y: auto;">
+                                        <table class="admin-table">
+                                            <thead>
+                                                <tr>
+                                                    <th style="width: 50px;">Pos</th>
+                                                    <th>Cliente</th>
+                                                    <th>Total Gasto</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="dashPremiumRankingBody">
+                                                <tr><td colspan="3" style="text-align:center;color:var(--text-muted);">Nenhum dado encontrado para o período.</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Relatório de Comandas -->
+                                <div class="relatorio-section">
+                                    <h3 style="margin-bottom: 1rem; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">🧾 Relatório de Comandas</h3>
+                                    <div class="admin-table-wrapper print-wrapper" style="max-height: 400px; overflow-y: auto;" id="printRelatorioContainer">
+                                        <table class="admin-table" id="tabelaRelatorioPremium">
+                                            <thead>
+                                                <tr>
+                                                    <th>Data/Hora</th>
+                                                    <th>Cliente</th>
+                                                    <th>CPF</th>
+                                                    <th>Total Acumulado</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="dashPremiumComandasBody">
+                                                <tr><td colspan="5" style="text-align:center;color:var(--text-muted);">Nenhuma comanda encontrada para o período.</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div> <!-- Fechamento tab-area-premium -->
+        </div> <!-- Fechamento da admin-content-wrapper -->
+    </div> <!-- Fechamento da admin-layout -->
+
+    <!-- =============================================================== -->
+    <!-- MODAL: Novo / Editar Agendamento                                 -->
+    <!-- =============================================================== -->
+    <div class="admin-modal-backdrop" id="modalNovoAgendamento">
+        <div class="admin-modal" style="max-width:520px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalNovoAgendamento')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3>📅 Agendamento</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" onclick="window.__AGENDA.salvarAgendamento()">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="agendaModalId">
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="agendaModalProfissional">Profissional</label>
+                        <select id="agendaModalProfissional" onchange="window.__AGENDA.carregarSlotsAdmin()"></select>
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="agendaModalServico">Serviço</label>
+                        <select id="agendaModalServico" onchange="window.__AGENDA.carregarSlotsAdmin()"></select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="agendaModalData">Data</label>
+                        <input type="date" id="agendaModalData" onchange="window.__AGENDA.carregarSlotsAdmin()">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label>Horários Disponíveis</label>
+                        <div id="agendaModalSlotsContainer" class="slots-grid-admin">
+                            <span style="color:var(--text-muted);font-size:0.8rem;padding:4px;">Selecione profissional, serviço e data</span>
+                        </div>
+                        <input type="hidden" id="agendaModalHora">
+                        <input type="hidden" id="agendaModalSlotInicio">
+                        <input type="hidden" id="agendaModalSlotFim">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="agendaModalCliente">Nome do Cliente *</label>
+                        <input type="text" id="agendaModalCliente" placeholder="Ex: João Silva">
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="agendaModalTelefone">Telefone *</label>
+                        <input type="tel" id="agendaModalTelefone" placeholder="(00) 00000-0000" maxlength="15">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="agendaModalObs">Observações</label>
+                    <textarea id="agendaModalObs" placeholder="Alguma preferência ou observação..."></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- =============================================================== -->
+    <!-- MODAL: Profissional                                              -->
+    <!-- =============================================================== -->
+    <div class="admin-modal-backdrop" id="modalProfissional">
+        <div class="admin-modal" style="max-width:480px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalProfissional')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3>👤 Profissional</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" onclick="window.__AGENDA.salvarProfissional()">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="profModalId">
+                <div class="form-row">
+                    <div class="form-group" style="flex:2">
+                        <label for="profModalNome">Nome *</label>
+                        <input type="text" id="profModalNome" placeholder="Ex: Carlos Barbeiro">
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="profModalCor">Cor na Agenda</label>
+                        <input type="color" id="profModalCor" value="#E5B25D">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="profModalEsp">Especialidade</label>
+                    <input type="text" id="profModalEsp" placeholder="Ex: Corte masculino, Barba">
+                </div>
+                <div class="form-group">
+                    <label for="profModalBio">Bio</label>
+                    <textarea id="profModalBio" placeholder="Uma breve descrição..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Foto do Profissional</label>
+                    <div style="display:flex; align-items:center; gap:15px; background: rgba(229,178,93,0.05); padding: 12px; border-radius: 12px; border: 1px dashed rgba(229,178,93,0.3);">
+                        <img id="profModalPreview" src="" style="display:none; width:64px; height:64px; border-radius:50%; object-fit:cover; border: 2px solid var(--primary);">
+                        <div id="profModalAvatarPlaceholder" class="profissional-avatar-placeholder" style="width:64px; height:64px; font-size:1.5rem; display:flex; align-items:center; justify-content:center; background:rgba(229,178,93,0.2); border-radius:50%;">?</div>
+                        <div style="flex:1">
+                            <input type="hidden" id="profModalFoto">
+                            <button class="btn-primary btn-sm" type="button" onclick="document.getElementById('btnUploadFotoProf').click()">Subir Foto</button>
+                            <input type="file" id="btnUploadFotoProf" style="display:none" accept="image/*">
+                            <p style="font-size:0.7rem; color:var(--text-muted); margin-top:5px;">WebP, PNG ou JPG (Máx 2MB)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- =============================================================== -->
+    <!-- MODAL: Serviço                                                   -->
+    <!-- =============================================================== -->
+    <div class="admin-modal-backdrop" id="modalServico">
+        <div class="admin-modal" style="max-width:440px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalServico')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3>✂️ Serviço</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" onclick="window.__AGENDA.salvarServico()">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="servModalId">
+                <div class="form-group">
+                    <label for="servModalNome">Nome do Serviço *</label>
+                    <input type="text" id="servModalNome" placeholder="Ex: Corte Masculino">
+                </div>
+                <div class="form-group">
+                    <label for="servModalDesc">Descrição</label>
+                    <textarea id="servModalDesc" placeholder="Descreva o serviço..."></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="servModalDuracao">Duração (minutos)</label>
+                        <input type="number" id="servModalDuracao" min="5" step="5" value="30">
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="servModalPreco">Preço (R$)</label>
+                        <input type="number" id="servModalPreco" min="0" step="0.01" value="0">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="servModalIntervalo">Intervalo após o serviço (min)</label>
+                    <input type="number" id="servModalIntervalo" min="0" step="5" placeholder="Vazio">
+                    <small style="color:var(--text-muted); font-size:0.75rem; margin-top:4px; display:block;">Deixe vazio para utilizar o intervalo padrão da agenda.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product Modal -->
+    <div class="admin-modal-backdrop" id="modalProduto">
+        <div class="admin-modal">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalProduto')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="modalProdutoTitle">Novo Produto</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnSalvarProduto" onclick="executarSalvarProduto()">Salvar</button>
+                </div>
+            </div>
+            
+            <div class="modal-body">
+                <input type="hidden" id="produtoId">
+                <div class="form-group">
+                    <label for="prodNome">Nome</label>
+                    <input type="text" id="prodNome" placeholder="Ex: Lasanha Especial">
+                </div>
+            <div class="form-group">
+                <label for="prodDesc">Descrição</label>
+                <textarea id="prodDesc" placeholder="Descrição detalhada do produto..."></textarea>
+            </div>
+            <div class="form-row" style="align-items: flex-start;">
+                <div class="form-group" style="flex:1">
+                    <div style="height: 22px; display: flex; align-items: center; margin-bottom: 4px;">
+                        <label for="prodPreco" style="margin-bottom:0;">Preço Original (R$)</label>
+                    </div>
+                    <input type="number" id="prodPreco" step="0.01" min="0" placeholder="30.00">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <div style="height: 22px; display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;">
+                        <label for="prodPrecoPromo" style="color:var(--warning); margin-bottom:0;">🔥 Promoção</label>
+                        <div class="promo-type-selector">
+                            <span class="promo-type-btn active" data-type="val" onclick="setPromoType('val')">R$</span>
+                            <span class="promo-type-btn" data-type="pct" onclick="setPromoType('pct')">%</span>
+                        </div>
+                    </div>
+                    <input type="number" id="prodPrecoPromo" step="0.01" min="0" placeholder="Valor ou %">
+                    <div id="promoPreview" class="promo-preview" style="display:none;">Novo Preço: R$ 0,00</div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group" style="flex:1">
+                    <label for="prodCategoria">Categoria</label>
+                    <select id="prodCategoria">
+                        <option value="">Selecione...</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label for="prodEstoqueMin">Estoque Mín. (Alerta)</label>
+                    <input type="number" id="prodEstoqueMin" min="0" placeholder="5"
+                        title="Abaixo disso, gera alerta vermelho no painel">
+                </div>
+            </div>
+
+            <div class="inventory-card" id="groupEstoqueCard">
+                <div class="inventory-header">
+                    <div class="inventory-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                        Controle de Estoque
+                    </div>
+                    <div id="groupEstoqueAtual" style="display:none;">
+                        <span class="inventory-current-badge">Estoque Atual: <span id="prodEstoqueDisplay">0</span></span>
+                        <input type="hidden" id="prodEstoque">
+                    </div>
+                </div>
+
+                <div class="inventory-body">
+                    <div class="form-row" id="rowTipoMovimentacao" style="display:none;">
+                        <div class="form-group" style="flex:1">
+                            <label for="prodTipoMovimentacao">Tipo de Operação</label>
+                            <select id="prodTipoMovimentacao">
+                                <option value="entrada">Entrada (Reposição)</option>
+                                <option value="saida">Saída (Perda / Avaria / Ajuste)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex:1">
+                            <label id="labelMovimentacaoEstoque" for="prodMovimentacaoEstoque">Estoque Inicial</label>
+                            <input type="number" id="prodMovimentacaoEstoque" min="0" placeholder="0">
+                        </div>
+                    </div>
+
+                    <div id="containerMotivoSaida" class="inventory-reason-box" style="display:none;">
+                        <div class="form-group">
+                            <label for="prodMotivoSaidaId" style="color: #ff4757; font-weight: 700;">Motivo da Saída</label>
+                            <select id="prodMotivoSaidaId">
+                                <option value="">Selecione um motivo...</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label for="prodObsSaida">Observação Complementar</label>
+                            <textarea id="prodObsSaida" placeholder="Detalhes sobre a perda ou ajuste..." style="min-height: 60px;"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="prodAtivo">Status</label>
+                <select id="prodAtivo">
+                    <option value="true">Ativo</option>
+                    <option value="false">Inativo</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <label>Imagens do Produto (Máx 5)</label>
+                    <button class="btn-primary btn-sm" type="button" onclick="document.getElementById('uploadImagem').click()" id="btnAdicionarImagem">
+                        + Adicionar Foto
+                    </button>
+                </div>
+                
+                <div id="containerImagensProduto" class="product-images-grid">
+                    <!-- Miniaturas aparecerão aqui via JS -->
+                </div>
+                
+                <input type="hidden" id="prodImagemSelecionada">
+                <input type="file" id="uploadImagem" accept="image/*" style="display:none;" onchange="handleImageUpload(this.files[0])">
+
+                <!-- COMENTADO: Galeria completa desativada - requer autenticação privada do Cloudinary -->
+                <!-- <div style="margin-top: 15px;">
+                    <button class="btn-sm btn-link" type="button" onclick="abrirModalGaleriaCompleta()">Ver Galeria Completa</button>
+                </div> -->
+            </div>
+        </div>
+    </div>
+</div>
+
+    <div class="admin-modal-backdrop" id="modalCategoria">
+        <div class="admin-modal">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalCategoria')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="modalCategoriaTitle">Nova Categoria</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnSalvarCategoria">Salvar</button>
+                </div>
+            </div>
+
+            <div class="modal-body">
+                <input type="hidden" id="catId">
+                <div class="form-group">
+                    <label for="catNome">Nome</label>
+                    <input type="text" id="catNome" placeholder="Ex: Massas">
+                </div>
+            <div class="form-group">
+                <label for="catSlug">Slug</label>
+                <input type="text" id="catSlug" placeholder="Ex: massas">
+            </div>
+            <div class="form-group">
+                <label for="catOrdem">Ordem de Exibição</label>
+                <input type="number" id="catOrdem" min="0" placeholder="1">
+            </div>
+        </div>
+    </div>
+</div>
+
+    <!-- Coupon Modal -->
+    <div class="admin-modal-backdrop" id="modalCupom">
+        <div class="admin-modal">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalCupom')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="modalCupomTitle">Novo Cupom</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnSalvarCupom">Salvar</button>
+                </div>
+            </div>
+
+            <div class="modal-body">
+                <input type="hidden" id="cupomId">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cupomCodigo">Código</label>
+                        <input type="text" id="cupomCodigo" placeholder="Ex: POKER10" style="text-transform:uppercase;">
+                    </div>
+                    <div class="form-group">
+                        <label for="cupomDesconto">Desconto (%)</label>
+                        <input type="number" id="cupomDesconto" min="1" max="100" step="1" placeholder="10">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cupomLimite">Limite de Uso (Opcional)</label>
+                        <input type="number" id="cupomLimite" min="0" step="1" placeholder="Vazio = ilimitado">
+                    </div>
+                    <div class="form-group">
+                        <label for="cupomAtivo">Status</label>
+                        <select id="cupomAtivo">
+                            <option value="true">Ativo</option>
+                            <option value="false">Inativo</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top: -10px; margin-bottom: 10px;">
+                    <small style="color: var(--text-muted); font-size: 0.75rem;">A contagem de usos será exibida na tabela principal.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- COMENTADO: Full Gallery Modal - Galeria completa desativada -->
+    <!-- <div class="admin-modal-backdrop" id="modalGaleriaCompleta">
+        <div class="admin-modal" style="max-width: 650px; display: flex; flex-direction: column; max-height: 90vh;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin-bottom: 0;">Galeria Completa</h3>
+                <button class="btn-cancel" style="padding: 6px 12px; flex: none;"
+                    onclick="fecharModal('modalGaleriaCompleta')">Fechar</button>
+            </div>
+
+            <div class="gallery-toolbar" style="margin-bottom: 1rem; border-radius: 8px; padding: 0;">
+                <input type="text" id="filtroGaleriaCompleta" class="gallery-search"
+                    placeholder="🔍 Busque pelo nome do arquivo..." style="width: 100%; border: none;">
+            </div>
+
+            <div class="image-gallery-grid" id="imageGalleryGridCompleta"
+                style="max-height: none; overflow-y: auto; flex: 1; border: 1.5px solid var(--border-color); border-radius: 8px; padding: 1rem;">
+                <!-- Full list populated by JS -->
+            </div>
+        </div>
+    </div> -->
+
+
+
+    <!-- Custom Confirm Modal -->
+    <div class="admin-modal-backdrop" id="modalConfirmacao" style="z-index: 9999;">
+        <div class="admin-modal modal-confirm">
+            <div class="confirm-icon">⚠️</div>
+            <h3 id="confirmTitle">Confirmar Ação</h3>
+            <p id="confirmMessage">Deseja realmente prosseguir?</p>
+            <div class="modal-actions">
+                <button class="btn-cancel" id="btnConfirmarCancelar">Cancelar</button>
+                <button class="btn-save btn-confirm-action" id="btnConfirmarOk">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Prompt Modal -->
+    <div class="admin-modal-backdrop" id="modalPrompt" style="z-index: 9999;">
+        <div class="admin-modal modal-confirm">
+            <h3 id="promptTitle">Entrada de Dados</h3>
+            <p id="promptMessage" style="margin-bottom: 15px; color: var(--text-muted);"></p>
+            <div class="form-group" style="text-align: left;">
+                <input type="text" id="promptInput" style="width: 100%;">
+            </div>
+            <div class="modal-actions" style="margin-top: 20px;">
+                <button class="btn-cancel" id="btnPromptCancelar">Cancelar</button>
+                <button class="btn-save btn-confirm-action" id="btnPromptOk">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Freight Zone Modal -->
+    <div class="admin-modal-backdrop" id="modalZona">
+        <div class="admin-modal">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalZona')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="modalZonaTitulo">Nova Zona de Entrega</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnSalvarZona">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="zonaId">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="zonaNome">Identificação da Zona</label>
+                        <input type="text" id="zonaNome" placeholder="Ex: Zona Norte, Região Central...">
+                    </div>
+                    <div class="form-group">
+                        <label for="zonaCidade">Cidade Atendida</label>
+                        <input type="text" id="zonaCidade" placeholder="Ex: Belo Horizonte">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="zonaNeighborhoods">Bairros Atendidos (separados por vírgula)</label>
+                    <textarea id="zonaNeighborhoods" rows="3" placeholder="Ex: Centro, Savassi, Funcionários, Barro Preto..."></textarea>
+                    <small style="margin-top: 5px; display: block; color: var(--text-muted);">Dica: Você pode copiar e colar uma lista de bairros separados por vírgula.</small>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="zonaFee">Valor do Frete (R$)</label>
+                        <input type="number" id="zonaFee" min="0" step="0.01" placeholder="8.00">
+                    </div>
+                    <div class="form-group">
+                        <label for="zonaAtivo">Status</label>
+                        <select id="zonaAtivo">
+                            <option value="true">Ativa</option>
+                            <option value="false">Inativa</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Cancelar Pedido -->
+    <div class="admin-modal-backdrop" id="modalCancelarPedido">
+        <div class="admin-modal modal-confirm">
+            <div class="confirm-icon" style="color: #ff4757;">❌</div>
+            <h3>Cancelar Pedido</h3>
+            <p style="margin-bottom: 15px; color: var(--text-muted);">Por favor, selecione o motivo do cancelamento.</p>
+            
+            <input type="hidden" id="cancelOrderId">
+            <div class="form-group" style="text-align: left; margin-bottom: 20px;">
+                <label for="selectCancelReason">Motivo do Cancelamento</label>
+                <select id="selectCancelReason" style="margin-top: 5px;">
+                    <option value="">Selecione um motivo...</option>
+                </select>
+            </div>
+
+            <div class="modal-actions" style="margin-top: 10px;">
+                <button class="btn-cancel" onclick="fecharModal('modalCancelarPedido')">Voltar</button>
+                <button class="btn-save btn-confirm-action" id="btnConfirmarCancelamento" style="background: var(--danger); color: white;">Confirmar Cancelamento</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Lista de Espera -->
+    <div class="admin-modal-backdrop" id="modalListaEspera">
+        <div class="admin-modal">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalListaEspera')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3>Adicionar à Lista de Espera</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" onclick="window.__AGENDA.salvarListaEspera()">Adicionar</button>
+                </div>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Cliente</label>
+                    <input type="text" id="waitlistNome" placeholder="Nome do cliente">
+                </div>
+                <div class="form-group">
+                    <label>WhatsApp / Telefone</label>
+                    <input type="tel" id="waitlistTelefone" placeholder="(00) 00000-0000" maxlength="15">
+                </div>
+                <div class="form-group">
+                    <label>Serviço Desejado</label>
+                    <select id="waitlistServico"></select>
+                </div>
+                <div class="form-group">
+                    <label>Data Preferencial (Opcional)</label>
+                    <input type="date" id="waitlistData">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Time Picker Modal -->
+    <div class="admin-modal-backdrop" id="modalTimePicker">
+        <div class="admin-modal" style="max-width: 340px; text-align: center; padding: 2.5rem;">
+            <h3 id="timePickerTitle" style="margin-bottom: 1.5rem; color: var(--primary); font-size: 1.4rem;">Selecionar Horário</h3>
+            <div class="time-picker-container">
+                <div class="time-picker-column">
+                    <button class="time-nav-btn" onclick="adjustTime('hour', 1)">▲</button>
+                    <input type="text" class="time-display" id="displayHour" value="18" maxlength="2">
+                    <button class="time-nav-btn" onclick="adjustTime('hour', -1)">▼</button>
+                </div>
+                <div class="time-separator">:</div>
+                <div class="time-picker-column">
+                    <button class="time-nav-btn" onclick="adjustTime('min', 5)">▲</button>
+                    <input type="text" class="time-display" id="displayMin" value="00" maxlength="2">
+                    <button class="time-nav-btn" onclick="adjustTime('min', -5)">▼</button>
+                </div>
+            </div>
+            <div style="margin-top: 2.5rem; display: flex; gap: 12px;">
+                <button class="btn-cancel" onclick="closeTimePicker()" style="flex:1">Cancelar</button>
+                <button class="btn-primary" onclick="confirmTimePicker()" style="flex:1">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Produto da Loja (Novo/Editar) -->
+    <div class="admin-modal-backdrop" id="modalLojaProduto">
+        <div class="admin-modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalLojaProduto')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="lojaModalTitle">Novo Produto</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnSalvarLojaProduto" onclick="window.__LOJA.salvarProduto()">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="lojaProdId">
+
+                <!-- Linha 1: Nome -->
+                <div class="form-group">
+                    <label for="lojaProdNome">Nome do Produto *</label>
+                    <input type="text" id="lojaProdNome" placeholder="Ex: Camiseta Básica">
+                </div>
+
+                <!-- Linha 2: Descrição -->
+                <div class="form-group">
+                    <label for="lojaProdDescricao">Descrição</label>
+                    <textarea id="lojaProdDescricao" placeholder="Descrição do produto..." style="min-height:70px;"></textarea>
+                </div>
+
+                <!-- Linha 3: Categoria + Status -->
+                <div class="form-row">
+                    <div class="form-group" style="flex:2">
+                        <label for="lojaProdCategoria">Categoria</label>
+                        <select id="lojaProdCategoria">
+                            <option value="">Sem categoria</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="lojaProdAtivo">Status</label>
+                        <select id="lojaProdAtivo">
+                            <option value="true">Ativo</option>
+                            <option value="false">Inativo</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Linha 4: Galeria de Imagens (até 5) -->
+                <div class="form-group">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <label style="margin-bottom:0;">📷 Galeria de Imagens <small style="color:var(--text-muted); font-weight:normal;">(até 5 fotos — arraste para reordenar)</small></label>
+                        <button class="btn-primary btn-sm" type="button" onclick="document.getElementById('lojaUploadImagem').click()" id="btnLojaAdicionarImagem">+ Adicionar Foto</button>
+                    </div>
+                    <!-- Grade de miniaturas (preenchida por JS) -->
+                    <div id="lojaGaleriaGrid" style="display:flex; gap:10px; flex-wrap:wrap; min-height:44px;"></div>
+                    <input type="hidden" id="lojaProdImageUrl">
+                    <input type="file" id="lojaUploadImagem" accept="image/*" style="display:none;" onchange="window.__LOJA.uploadImagem(this.files[0])">
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin-top:6px;">A 1ª foto é a imagem principal. Clique na estrela ⭐ para definir a favorita.</p>
+                </div>
+
+                <hr class="modal-divider" style="margin: 1.2rem 0;">
+
+                <!-- CRIAÇÃO: Seleção de tamanhos e cores -->
+                <div id="lojaNovosCheckboxes">
+                    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">Selecione os tamanhos e cores para gerar automaticamente as variações:</p>
+                    <div class="form-row" style="align-items:flex-start; gap:1.5rem;">
+                        <div class="loja-options-group" style="flex:1;">
+                            <label class="group-label">📏 Tamanhos *</label>
+                            <div class="loja-checkbox-grid" id="lojaTamanhosGrid"></div>
+                        </div>
+                        <div class="loja-options-group" style="flex:2;">
+                            <label class="group-label">🎨 Cores *</label>
+                            <div class="loja-checkbox-grid" id="lojaCoresGrid"></div>
+                        </div>
+                    </div>
+
+                    <!-- Tabela interativa de combinações com estoque inicial -->
+                    <div id="lojaCombPreview" style="display:none; margin-top:1.5rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:10px;">
+                            <label class="group-label" style="margin-bottom:0;">📋 Variações geradas — defina o estoque inicial:</label>
+                            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                                <input type="number" id="globalPreco" step="0.01" min="0" placeholder="Preço" style="width:80px; padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid var(--border-color); background:transparent; color:var(--text-color);">
+                                <input type="number" id="globalEstoque" min="0" placeholder="Estoque" style="width:75px; padding:4px 8px; font-size:12px; border-radius:6px; border:1px solid var(--border-color); background:transparent; color:var(--text-color);">
+                                <button class="btn-sm" style="font-size:0.75rem; background:rgba(229,178,93,0.1); color:var(--primary); border:1px solid rgba(229,178,93,0.3);" onclick="window.__LOJA.aplicarEstoqueGlobal()">Aplicar a todos</button>
+                            </div>
+                        </div>
+                        <div class="admin-table-wrapper" style="max-height:280px; overflow-y:auto;">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>Cor</th>
+                                        <th>Tamanho</th>
+                                        <th style="width:110px;">Preço (R$)</th>
+                                        <th style="width:90px;" id="thCombEstoque">Estoque Inicial</th>
+                                        <th style="width:50px;">Foto</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="lojaCombBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- EDIÇÃO: Variações existentes -->
+                <div id="lojaVariacoesExistentes" style="display:none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                        <label class="group-label" style="margin-bottom:0;">🏷️ Variações Cadastradas</label>
+                        <button class="btn-sm btn-primary" onclick="window.__LOJA.abrirModalNovaVariacao()" style="font-size:0.78rem;">+ Nova Variação</button>
+                    </div>
+                    <div class="admin-table-wrapper" style="max-height:300px; overflow-y:auto;">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:50px;">Foto</th>
+                                    <th>SKU</th>
+                                    <th>Cor</th>
+                                    <th>Tam.</th>
+                                    <th style="width:110px;">Preço (R$)</th>
+                                    <th style="width:100px;">Estoque</th>
+                                    <th style="width:60px;">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lojaVariacoesEditBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL LOJA: EDITAR VARIAÇÃO (preço + foto) -->
+    <div class="admin-modal-backdrop" id="modalEditarVariacao">
+        <div class="admin-modal" style="max-width:440px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalEditarVariacao')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3>Editar Variação</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" onclick="window.__LOJA.salvarEdicaoVariacao()">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editVarId">
+                <div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:10px 14px; margin-bottom:1rem; font-size:0.85rem; color:var(--text-muted);">
+                    <span id="editVarInfo">—</span>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="editVarPreco">Preço (R$)</label>
+                        <input type="number" id="editVarPreco" min="0" step="0.01" placeholder="">
+                    </div>
+                    <div class="form-group" style="flex:1" id="editVarEstoqueGroup">
+                        <label>Ajustar Estoque (+/-)</label>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <input type="number" id="editVarEstoqueInput" placeholder="Ex: 5 ou -2" style="flex:1;">
+                            <button type="button" class="btn-sm" onclick="window.__LOJA.abrirModalEstoqueVariacao(document.getElementById('editVarId').value)" style="white-space:nowrap; padding:4px 8px; background:transparent; border:1px solid var(--border-color); color:var(--text-color);" title="Histórico completo">📋 Histórico</button>
+                        </div>
+                        <small style="color:var(--text-muted); font-size:0.75rem;">Deixe em branco para não alterar</small>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label style="margin-bottom:8px; display:block;">📷 Foto desta variação <small style="color:var(--text-muted); font-weight:normal;">(opcional)</small></label>
+                    <div style="display:flex; align-items:center; gap:12px; background:rgba(229,178,93,0.05); padding:10px; border-radius:10px; border:1px dashed rgba(229,178,93,0.3);">
+                        <div id="editVarImagePreview" style="width:72px; height:72px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid var(--border-color); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; cursor:pointer;" onclick="document.getElementById('editVarUploadInput').click()">
+                            <span id="editVarImageIcon" style="font-size:1.5rem;">🖼️</span>
+                        </div>
+                        <div style="flex:1; display:flex; flex-direction:column; gap:8px;">
+                            <input type="hidden" id="editVarImageUrl">
+                            <button class="btn-sm" type="button" onclick="document.getElementById('editVarUploadInput').click()" style="background:rgba(229,178,93,0.1); color:var(--primary); border:1px solid rgba(229,178,93,0.3);">Trocar Foto</button>
+                            <button class="btn-sm" type="button" onclick="window.__LOJA.removerFotoEdicaoVariacao()" style="background:transparent; color:var(--danger); border:1px solid var(--danger);">Remover Foto</button>
+                            <input type="file" id="editVarUploadInput" accept="image/*" style="display:none;" onchange="window.__LOJA.uploadFotoEdicaoVariacao(this.files[0])">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Categoria da Loja -->
+    <div class="admin-modal-backdrop" id="modalLojaCategoria">
+        <div class="admin-modal" style="max-width:440px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalLojaCategoria')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="lojaCatModalTitle">Nova Categoria</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" onclick="window.__LOJA.salvarCategoria()">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="lojaCatId">
+                <div class="form-group">
+                    <label for="lojaCatNome">Nome da Categoria *</label>
+                    <input type="text" id="lojaCatNome" placeholder="Ex: Camisetas, Calças, Acessórios">
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="lojaCatOrdem">Ordem de exibição</label>
+                        <input type="number" id="lojaCatOrdem" min="0" placeholder="0">
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="lojaCatAtivo">Status</label>
+                        <select id="lojaCatAtivo">
+                            <option value="true">Ativo</option>
+                            <option value="false">Inativo</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Nova Variação (ao editar produto) -->
+    <div class="admin-modal-backdrop" id="modalLojaNovaVariacao">
+        <div class="admin-modal" style="max-width:440px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalLojaNovaVariacao')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3>Nova Variação</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" onclick="window.__LOJA.salvarNovaVariacao()">Adicionar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="novaVarProdutoId">
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="novaVarTamanho">Tamanho *</label>
+                        <select id="novaVarTamanho"></select>
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="novaVarCor">Cor *</label>
+                        <select id="novaVarCor"></select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="novaVarPreco">Preço (R$)</label>
+                        <input type="number" id="novaVarPreco" min="0" step="0.01" placeholder="">
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="novaVarEstoque">Estoque Inicial</label>
+                        <input type="number" id="novaVarEstoque" min="0" placeholder="">
+                    </div>
+                </div>
+                <!-- Foto específica desta variação -->
+                <div class="form-group">
+                    <label style="margin-bottom:8px; display:block;">📷 Foto desta variação <small style="color:var(--text-muted); font-weight:normal;">(opcional — substitui a principal na loja)</small></label>
+                    <div style="display:flex; align-items:center; gap:12px; background:rgba(229,178,93,0.05); padding:10px; border-radius:10px; border:1px dashed rgba(229,178,93,0.3);">
+                        <div id="novaVarImagePreview" style="width:60px; height:60px; border-radius:8px; background:rgba(255,255,255,0.05); border:1px solid var(--border-color); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;">
+                            <span style="font-size:1.5rem;">🖼️</span>
+                        </div>
+                        <div style="flex:1">
+                            <input type="hidden" id="novaVarImageUrl">
+                            <button class="btn-sm" type="button" onclick="document.getElementById('lojaUploadVarImagem').click()" style="background:rgba(229,178,93,0.1); color:var(--primary); border:1px solid rgba(229,178,93,0.3);">Subir Foto</button>
+                            <button class="btn-sm" type="button" onclick="window.__LOJA.removerImagemVariacao()" style="background:transparent; color:var(--danger); border:1px solid var(--danger); margin-left:6px;">Remover</button>
+                            <input type="file" id="lojaUploadVarImagem" accept="image/*" style="display:none;" onchange="window.__LOJA.uploadImagemVariacao(this.files[0])">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL LOJA: ESTOQUE DA VARIAÇÃO -->
+    <div class="admin-modal-backdrop" id="modalLojaEstoque">
+        <div class="admin-modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalLojaEstoque')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3>Estoque da Variação</h3>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="inventory-header">
+                    <div class="inventory-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                        Movimentar Estoque
+                    </div>
+                    <div id="groupLojaEstoqueAtual">
+                        <span class="inventory-current-badge">Estoque Atual: <span id="lojaVarEstoqueDisplay">0</span></span>
+                        <input type="hidden" id="lojaVarId">
+                        <input type="hidden" id="lojaVarEstoque">
+                    </div>
+                </div>
+
+                <div class="inventory-body">
+                    <div class="form-row">
+                        <div class="form-group" style="flex:1">
+                            <label for="lojaVarTipoMovimentacao">Tipo de Operação</label>
+                            <select id="lojaVarTipoMovimentacao">
+                                <option value="entrada">Entrada (Reposição)</option>
+                                <option value="saida">Saída (Perda / Avaria / Ajuste)</option>
+                                <option value="exato">Definir Quantidade Exata</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex:1">
+                            <label for="lojaVarMovimentacaoEstoque" id="lojaVarQtdLabel">Quantidade</label>
+                            <input type="number" id="lojaVarMovimentacaoEstoque" min="0" placeholder="0">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="lojaVarMotivoSelect">Motivo</label>
+                        <select id="lojaVarMotivoSelect">
+                            <option value="">Selecione ou adicione...</option>
+                        </select>
+                        <button class="btn-sm" onclick="window.__LOJA.novoMotivoEstoqueLoja()" style="margin-top: 5px; font-size: 12px; background:transparent; color:var(--primary); border:1px solid var(--primary);">+ Adicionar Motivo</button>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="lojaVarObsMovimentacao">Observações (opcional)</label>
+                        <textarea id="lojaVarObsMovimentacao" rows="2" placeholder="Detalhes do ajuste..."></textarea>
+                    </div>
+                    <button class="btn-primary" onclick="window.__LOJA.salvarMovimentacaoEstoqueLoja()" style="width: 100%;">Registrar Movimentação</button>
+                </div>
+
+                <div class="inventory-history-section">
+                    <div class="history-header">
+                        <h4>Histórico Recente (esta variação)</h4>
+                    </div>
+                    <div class="admin-table-wrapper" style="max-height: 200px; overflow-y: auto;">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Tipo</th>
+                                    <th>Qtd</th>
+                                    <th>Motivo</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lojaVarEstoqueHistoryBody">
+                                <tr><td colspan="4" style="text-align:center;">Carregando histórico...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Atendente -->
+    <div class="admin-modal-backdrop" id="modalAtendente">
+        <div class="admin-modal" style="max-width: 440px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalAtendente')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="atendenteModalTitle">Novo Atendente</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnSalvarAtendente">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="atendenteId">
+                <div class="form-group">
+                    <label for="atendenteNome">Nome Completo *</label>
+                    <input type="text" id="atendenteNome" placeholder="Ex: João Silva">
+                </div>
+                <div class="form-group">
+                    <label for="atendenteCpf">CPF (Apenas números) *</label>
+                    <input type="text" id="atendenteCpf" placeholder="00000000000" maxlength="11">
+                    <small style="color: var(--text-muted); font-size: 0.7rem;">Este será o usuário de login.</small>
+                </div>
+                <div class="form-group">
+                    <label for="atendenteSenha">Senha de Acesso *</label>
+                    <input type="password" id="atendenteSenha" placeholder="••••••">
+                    <small id="atendenteSenhaDica" style="color: var(--text-muted); font-size: 0.7rem;">Para novos cadastros, a senha é obrigatória.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar (Mobile Drawer) -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2>Menu Principal</h2>
+            <button id="btnCloseMobile" class="btn-close-mobile">&times;</button>
+        </div>
+        <nav class="sidebar-nav">
+            <button class="nav-item active" data-tab="produtos" id="side-nav-produtos">📦 Produtos</button>
+            <button class="nav-item" data-tab="agenda" id="side-nav-agenda" style="display:none;">📅 Agenda</button>
+            <button class="nav-item" data-tab="dashboard" id="side-nav-dashboard">📊 Vendas & Performance</button>
+            <button class="nav-item" data-tab="loja" id="side-nav-loja" style="display:none;">👗 Loja</button>
+            <button class="nav-item" data-tab="cupons" id="side-nav-cupons">🎫 Cupons</button>
+            <button class="nav-item" data-tab="configuracoes" id="side-nav-configuracoes">⚙️ Configurações</button>
+            <button class="nav-item nav-item--premium" data-tab="area-premium" id="side-nav-area-premium" style="display:none;">👑 Área Premium</button>
+        </nav>
+        <div class="sidebar-footer">
+            <button class="btn-logout" id="btnLogoutMobile">Sair da Conta</button>
+        </div>
+    </aside>
+
+    <!-- =============================================================== -->
+    <!-- MODAL: Novo/Editar Cliente Premium                              -->
+    <!-- =============================================================== -->
+    <div class="admin-modal-backdrop" id="modalClientePremium">
+        <div class="admin-modal premium-modal" style="max-width:520px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalClientePremium')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="clientePremiumModalTitle">👑 Novo Cliente Premium</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnSalvarClientePremium">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="clientePremiumId">
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="cpNome">Nome completo</label>
+                        <input type="text" id="cpNome" placeholder="Nome do cliente">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="cpCpf">CPF (login)</label>
+                        <input type="text" id="cpCpf" placeholder="000.000.000-00" maxlength="14">
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="cpTelefone">Telefone</label>
+                        <input type="tel" id="cpTelefone" placeholder="(31) 99999-9999" maxlength="15">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="cpPin">PIN de Acesso (4-6 dígitos)</label>
+                        <input type="password" id="cpPin" placeholder="****" maxlength="6" inputmode="numeric">
+                        <small id="cpPinDica" style="color:var(--text-muted); margin-top:4px; display:block;">PIN obrigatório para novos cadastros.</small>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="cpTipo">Tipo</label>
+                        <select id="cpTipo">
+                            <option value="premium">⭐ Premium</option>
+                            <option value="funcionario">👤 Funcionário</option>
+                            <option value="vip_diretoria">👑 VIP Diretoria</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="cpPerfil">Perfil de Cardápio</label>
+                        <select id="cpPerfil">
+                            <option value="">Cardápio completo</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="cpTeto">Teto de Gastos Mensal (R$)</label>
+                        <input type="number" id="cpTeto" placeholder="0 = sem limite" step="0.01" min="0">
+                        <small style="color:var(--text-muted); margin-top:4px; display:block;">Valor 0 ou vazio = sem limite de gastos.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Comanda Premium -->
+    <div class="admin-modal-backdrop" id="modalComandaPremium">
+        <div class="admin-modal premium-modal" style="max-width:600px;">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalComandaPremium')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="comandaModalTitle">📋 Comanda</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnFecharComanda" style="background:var(--accent-danger); border-color:var(--accent-danger);">Encerrar Comanda</button>
+                </div>
+            </div>
+            
+            <div class="modal-body-scrollable">
+                <div class="form-container">
+                    <div id="comandaClienteInfo" style="margin-bottom:15px; padding:12px; background:rgba(229,178,93,0.08); border-radius:10px; border:1px solid rgba(229,178,93,0.2);">
+                        <strong id="comandaClienteNome" style="color:var(--accent-gold); font-size: 1.1rem;"></strong>
+                        <span id="comandaStatus" style="margin-left:10px;"></span>
+                    </div>
+                    <div id="comandaPedidosLista" style="max-height:350px; overflow-y:auto; padding-right:5px;"></div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; padding-top:15px; border-top:1px solid var(--border-default);">
+                        <span style="font-size:1.1rem; font-weight:700;">Total Acumulado:</span>
+                        <span id="comandaTotalValor" style="font-size:1.4rem; font-weight:800; color:var(--accent-gold);">R$ 0,00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- =============================================================== -->
+    <!-- MODAL: Novo/Editar Perfil de Cardápio                           -->
+    <!-- =============================================================== -->
+    <div class="admin-modal-backdrop" id="modalPerfilCardapio">
+        <div class="admin-modal premium-modal pc-modal-wide">
+            <div class="modal-header">
+                <div class="modal-header-left">
+                    <button class="btn-modal-back" onclick="fecharModal('modalPerfilCardapio')" title="Voltar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 id="perfilCardapioModalTitle">📋 Novo Perfil de Cardápio</h3>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnSalvarPerfilCardapio">Salvar</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="perfilCardapioId">
+
+                <!-- Campos de nome e descrição -->
+                <div class="form-row">
+                    <div class="form-group" style="flex:1">
+                        <label for="pcNome">Nome do Perfil</label>
+                        <input type="text" id="pcNome" placeholder="Ex: VIP Diretoria, Funcionários">
+                    </div>
+                    <div class="form-group" style="flex:1">
+                        <label for="pcDescricao">Descrição</label>
+                        <input type="text" id="pcDescricao" placeholder="Descrição opcional">
+                    </div>
+                </div>
+
+                <!-- Instrução -->
+                <p style="font-size:0.82rem; color:var(--text-muted); margin: 0 0 1rem 0;">
+                    Ative as categorias que este perfil pode visualizar. Dentro de cada categoria, você pode liberar todos os produtos ou apenas os individuais desejados.
+                </p>
+
+                <!-- Árvore de categorias + produtos -->
+                <div id="pcArvoreContainer">
+                    <p style="text-align:center; color:var(--text-muted); padding: 2rem;">Carregando categorias...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Config Central (deve vir antes do Supabase) -->
+    <script src="/event-bus.js"></script>
+    <script src="/module-registry.js"></script>
+    <script src="/config-manager.js"></script>
+    <script src="/bootstrap.js"></script>
+    <script src="/config.js"></script>
+    <!-- Supabase & SortableJS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <!-- SheetJS for Excel Export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Multi-Tenant Context -->
+    <script src="theme-manager.js"></script>
+    <script src="tenant.js"></script>
+    <script src="admin.js?v=2.3"></script>
+</body>
+
+</html>

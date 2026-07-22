@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>Super Admin | SaaS</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="/admin-saas.css">
+    <style>
+        /* Switch Premium Unificado */
+        .switch {
+            all: initial; position: relative; display: inline-block !important;
+            width: 34px !important; height: 18px !important; min-width: 34px !important; max-width: 34px !important;
+            flex-shrink: 0 !important; cursor: pointer; vertical-align: middle;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; display: none; }
+        .slider {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255,255,255,0.1); transition: .3s cubic-bezier(0.4, 0, 0.2, 1); 
+            border-radius: 20px; box-sizing: border-box;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 12px; width: 12px; left: 2px; bottom: 2px;
+            background-color: #fff; transition: .3s cubic-bezier(0.4, 0, 0.2, 1); 
+            border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        input:checked + .slider { background-color: var(--accent-gold) !important; }
+        input:checked + .slider:before { transform: translateX(16px) !important; }
+
+        .module-card {
+            background: var(--card-bg, #1a1a1a);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 16px; padding: 1.5rem; transition: all 0.3s ease;
+        }
+        .module-card:hover { border-color: rgba(229, 178, 93, 0.2); }
+        .module-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 1.5rem; padding: 0 5px 1rem 5px; border-bottom: 1px solid rgba(255,255,255,0.05);
+            cursor: pointer;
+            user-select: none;
+        }
+        .grupo-content { display: flex; flex-direction: column; gap: 6px; transition: opacity 0.3s ease; }
+        .grupo-content.disabled { opacity: 0.3; pointer-events: none; }
+        .grupo-content.collapsed { display: none; }
+        .accordion-icon { font-size: 0.8rem; color: var(--text-secondary); transition: transform 0.3s; }
+        .module-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 15px; background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 10px;
+        }
+        .module-item:hover { background: rgba(255, 255, 255, 0.05); }
+        .module-item span { font-size: 0.85rem; color: var(--text-secondary); }
+
+        /* Estilos para o Card de Faturamento Global */
+        .clickable-metric {
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .clickable-metric::after {
+            content: '👁️ Ver detalhes';
+            position: absolute;
+            bottom: -30px;
+            right: 15px;
+            font-size: 0.7rem;
+            color: var(--accent-gold);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        .clickable-metric:hover {
+            transform: translateY(-5px);
+            border-color: rgba(229, 178, 93, 0.4);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.5);
+        }
+        .clickable-metric:hover::after {
+            bottom: 15px;
+            opacity: 1;
+        }
+        .metric-value.money {
+            color: var(--accent-gold);
+            font-family: 'Outfit', sans-serif;
+            letter-spacing: -0.02em;
+        }
+        
+        .saas-table.compact { font-size: 0.85rem; }
+        .saas-table.compact td { padding: 10px 12px; }
+    </style>
+</head>
+
+<body>
+
+    <!-- Toast de Notificações -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Login Screen (Super Admin) -->
+    <div class="login-screen" id="loginScreen">
+        <div class="login-card">
+            <h1>SaaS Admin</h1>
+            <p>Painel Global de Gestão</p>
+            <div class="form-group">
+                <label for="loginEmail">E-mail Super Admin</label>
+                <input type="email" id="loginEmail" placeholder="super@admin.com">
+            </div>
+            <div class="form-group">
+                <label for="loginSenha">Senha</label>
+                <input type="password" id="loginSenha" placeholder="••••••••">
+            </div>
+            <button class="btn-login" id="btnLogin">Entrar no Sistema</button>
+            <p class="login-error" id="loginError"></p>
+        </div>
+    </div>
+
+    <!-- Admin SaaS Layout -->
+    <div class="admin-layout" id="adminLayout" style="display: none;">
+        
+        <!-- Top Header -->
+        <header class="admin-topbar">
+            <div class="topbar-container">
+                <!-- Mobile Toggle first for mobile layout -->
+                <button id="btnMobileMenu" class="btn-mobile-toggle">☰</button>
+
+                <nav class="admin-tabs">
+                    <button class="nav-tab active" data-target="dashboard">
+                        <span class="tab-icon">📊</span>
+                        <span class="tab-text">Dashboard</span>
+                    </button>
+                    <button class="nav-tab" data-target="empresas">
+                        <span class="tab-icon">🏢</span>
+                        <span class="tab-text">Empresas</span>
+                    </button>
+                </nav>
+
+                <div class="topbar-actions">
+                    <button id="btnLimparVendas" class="btn-outline" style="font-size: 0.8rem; padding: 6px 12px; border-color: rgba(239, 68, 68, 0.3); color: #ef4444; margin-right: 10px;">🧹 Limpar Vendas</button>
+                    <button id="btnSair" class="btn-logout">Sair</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Sidebar Overlay (Still needed for mobile drawer) -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+        <!-- Sidebar (Mobile Drawer only) -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>Menu</h2>
+                <button id="btnCloseMobile" class="btn-close-mobile">&times;</button>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-target="dashboard">📊 Dashboard</a>
+                <a href="#" class="nav-item" data-target="empresas">🏢 Empresas</a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            
+            <!-- Dashboard View -->
+            <div id="view-dashboard" class="view-section active">
+                <header class="section-header">
+                    <h1>Visão Geral da Plataforma</h1>
+                </header>
+
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <h3>Total de Lojas</h3>
+                        <div class="metric-value" id="metricTotal">--</div>
+                    </div>
+                    <div class="metric-card success">
+                        <h3>Lojas Ativas</h3>
+                        <div class="metric-value" id="metricAtivas">--</div>
+                    </div>
+                    <div class="metric-card danger">
+                        <h3>Lojas Inativas</h3>
+                        <div class="metric-value" id="metricInativas">--</div>
+                    </div>
+                    <div class="metric-card premium">
+                        <h3>Planos Premium</h3>
+                        <div class="metric-value" id="metricPremium">--</div>
+                    </div>
+                    <div class="metric-card clickable-metric" id="cardFaturamento" onclick="abrirBreakdownFaturamento()">
+                        <h3>Faturamento Global</h3>
+                        <div class="metric-value money" id="metricFaturamento">R$ 0,00</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Empresas View -->
+            <div id="view-empresas" class="view-section">
+                <header class="section-header">
+                    <h1>Gestão de Empresas</h1>
+                    <button class="btn-primary" id="btnNovaEmpresa">+ Nova Empresa</button>
+                </header>
+
+                <div class="table-container">
+                    <table class="saas-table">
+                        <thead>
+                            <tr>
+                                <th>Empresa</th>
+                                <th>Plano</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="listaEmpresas">
+                            <tr><td colspan="4" style="text-align: center;">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+
+    <!-- Modal: Nova Empresa -->
+    <div class="modal" id="modalNovaEmpresa">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="modal-close" onclick="fecharModal('modalNovaEmpresa')">&times;</span>
+            <h2>Nova Empresa</h2>
+            <p class="modal-subtitle">Configure todos os detalhes da nova loja e provisione o acesso.</p>
+
+            <!-- Tabs Navigation -->
+            <div class="modal-tabs">
+                <button class="tab-btn active" data-tab="tab-geral" onclick="switchTab('modalNovaEmpresa', 'tab-geral')">1. Dados Básicos</button>
+                <button class="tab-btn" data-tab="tab-modulos" onclick="switchTab('modalNovaEmpresa', 'tab-modulos')">2. Módulos Ativos</button>
+                <button class="tab-btn" data-tab="tab-tema" onclick="switchTab('modalNovaEmpresa', 'tab-tema')">3. Identidade Visual</button>
+            </div>
+
+            <!-- Tab: Geral -->
+            <div id="tab-geral" class="tab-content active">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nome da Empresa (Interno)</label>
+                        <input type="text" id="empNome" required placeholder="Ex: RiverTech - Matriz">
+                    </div>
+                    <div class="form-group">
+                        <label>Nome da Marca (Público)</label>
+                        <input type="text" id="empBrandName" required placeholder="Ex: Burger Premium">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Endereço da Loja (Link / Slug)</label>
+                    <input type="text" id="empSlug" required placeholder="burger-premium">
+                    <small>A loja ficará acessível em: river-tech-gestao.vercel.app/<strong>slug</strong></small>
+                    
+                    <div class="url-previews" id="urlPreviews" style="display: none;">
+                        <div class="url-preview-item">
+                            <label>🔗 Cardápio (Cliente)</label>
+                            <code id="previewMenu">...</code>
+                        </div>
+                        <div class="url-preview-item">
+                            <label>📅 Agendamento</label>
+                            <code id="previewAgendamento">...</code>
+                        </div>
+                        <div class="url-preview-item">
+                            <label>⚙️ Painel de Gestão (Admin)</label>
+                            <code id="previewAdmin">...</code>
+                        </div>
+                        <div class="url-preview-item">
+                            <label>🎴 Apresentação Comercial</label>
+                            <code id="previewApresentacao">...</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Plano de Assinatura</label>
+                        <select id="empPlano">
+                            <option value="basico">Básico</option>
+                            <option value="pro">Pro</option>
+                            <option value="premium" selected>Premium</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Segmento da Empresa</label>
+                        <select id="empSegmento" onchange="aplicarPresetSegmento(this.value)">
+                            <option value="">— Selecione —</option>
+                            <option value="restaurante">🍽️ Bares / Restaurantes</option>
+                            <option value="barbearia">💈 Barbearia</option>
+                            <option value="loja_roupas">👗 Loja de Roupas</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>E-mail do Administrador</label>
+                        <input type="email" id="empAdminEmail" required placeholder="dono@email.com">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Senha de Acesso Provisória</label>
+                    <input type="text" id="empAdminSenha" required value="Mudar123!">
+                </div>
+            </div>
+
+            <!-- Tab: Módulos -->
+            <div id="tab-modulos" class="tab-content" style="max-height: 50vh; overflow-y: auto;">
+                <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1.5rem;">
+                    Selecione quais recursos estarão disponíveis para este cliente.
+                </p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem;">
+                    
+                    <!-- Grupo: Produtos -->
+                    <div class="module-card">
+                        <div class="module-header" onclick="toggleAccordionNovo('n_grupo_produtos')">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="accordion-icon" id="icon_n_grupo_produtos">▼</span>
+                                <div>
+                                    <h4 style="color: var(--accent-gold); margin:0; font-size: 0.9rem;">📦 PRODUTOS</h4>
+                                    <small style="font-size: 0.7rem; color: var(--text-secondary);">Catálogo e Estoque</small>
+                                </div>
+                            </div>
+                            <label class="switch" onclick="event.stopPropagation()">
+                                <input type="checkbox" id="n_master_produtos" checked onchange="toggleGrupoModuloNovo('n_grupo_produtos', this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="grupo-content collapsed" id="n_grupo_produtos">
+                            <div class="module-item">
+                                <span>Gerenciar Produtos</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_produtos_gerenciar" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>Categorias</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_produtos_categorias" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>Controle de Estoque</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_produtos_estoque" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>👥 Equipe / Atendentes</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_produtos_equipe" checked><span class="slider"></span></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grupo: Vendas -->
+                    <div class="module-card">
+                        <div class="module-header" onclick="toggleAccordionNovo('n_grupo_vendas')">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="accordion-icon" id="icon_n_grupo_vendas">▼</span>
+                                <div>
+                                    <h4 style="color: var(--accent-gold); margin:0; font-size: 0.9rem;">📊 VENDAS</h4>
+                                    <small style="font-size: 0.7rem; color: var(--text-secondary);">Métricas e Histórico</small>
+                                </div>
+                            </div>
+                            <label class="switch" onclick="event.stopPropagation()">
+                                <input type="checkbox" id="n_master_vendas" checked onchange="toggleGrupoModuloNovo('n_grupo_vendas', this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="grupo-content collapsed" id="n_grupo_vendas">
+                            <div class="module-item">
+                                <span>Histórico de Vendas</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_vendas_visao_geral" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>Dashboard de Métricas</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_metricas_dashboard" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>Performance Analítica</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_metricas_performance_vendas" checked><span class="slider"></span></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grupo: Operações -->
+                    <div class="module-card">
+                        <div class="module-header" onclick="toggleAccordionNovo('n_grupo_ops')">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="accordion-icon" id="icon_n_grupo_ops">▼</span>
+                                <div>
+                                    <h4 style="color: var(--accent-gold); margin:0; font-size: 0.9rem;">⚙️ OPERAÇÕES</h4>
+                                    <small style="font-size: 0.7rem; color: var(--text-secondary);">Frete, Cupons e Pagamentos</small>
+                                </div>
+                            </div>
+                            <label class="switch" onclick="event.stopPropagation()">
+                                <input type="checkbox" id="n_master_ops" checked onchange="toggleGrupoModuloNovo('n_grupo_ops', this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="grupo-content collapsed" id="n_grupo_ops">
+                            <div class="module-item">
+                                <span>Gestão de Frete</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_config_frete" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>Pagamento Online</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_pagamento" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>Cupons de Desconto</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_cupons" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>Cardápio Ativo</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_cardapio" checked><span class="slider"></span></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grupo: Agendamento -->
+                    <div class="module-card">
+                        <div class="module-header" onclick="toggleAccordionNovo('n_grupo_agendamento')">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="accordion-icon" id="icon_n_grupo_agendamento">▼</span>
+                                <div>
+                                    <h4 style="color: var(--accent-gold); margin:0; font-size: 0.9rem;">📅 AGENDAMENTO</h4>
+                                    <small style="font-size: 0.7rem; color: var(--text-secondary);">Barbearia e Serviços por Hora</small>
+                                </div>
+                            </div>
+                            <label class="switch" onclick="event.stopPropagation()">
+                                <input type="checkbox" id="n_master_agendamento" checked onchange="toggleGrupoModuloNovo('n_grupo_agendamento', this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="grupo-content collapsed" id="n_grupo_agendamento">
+                            <div class="module-item">
+                                <span>📅 Agendamento Online</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_agendamento_ativo" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>👥 Multi-Profissional</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_agendamento_multi_profissional" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>⏳ Lista de Espera</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_agendamento_lista_espera" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>💬 Mensagens Automáticas</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_agendamento_mensagens" checked><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>🏆 Clube de Fidelidade</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_agendamento_fidelidade" checked><span class="slider"></span></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grupo: Loja de Roupas -->
+                    <div class="module-card">
+                        <div class="module-header" onclick="toggleAccordionNovo('n_grupo_loja')">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="accordion-icon" id="icon_n_grupo_loja">▼</span>
+                                <div>
+                                    <h4 style="color: var(--accent-gold); margin:0; font-size: 0.9rem;">👗 LOJA DE ROUPAS</h4>
+                                    <small style="font-size: 0.7rem; color: var(--text-secondary);">Variações, Estoque e Vitrine</small>
+                                </div>
+                            </div>
+                            <label class="switch" onclick="event.stopPropagation()">
+                                <input type="checkbox" id="n_master_loja" onchange="toggleGrupoModuloNovo('n_grupo_loja', this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="grupo-content disabled" id="n_grupo_loja">
+                            <div class="module-item">
+                                <span>👗 Módulo Loja Ativo</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_loja_roupas"><span class="slider"></span></label>
+                            </div>
+                            <div class="module-item">
+                                <span>📦 Controle de Estoque (Loja)</span>
+                                <label class="switch"><input type="checkbox" id="n_mod_loja_estoque" checked><span class="slider"></span></label>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Tab: Tema -->
+            <div id="tab-tema" class="tab-content">
+                <div class="theme-editor" style="margin-top:0;">
+                    <div class="theme-editor-grid">
+                        <div class="theme-color-field">
+                            <label>🎨 Cor Primária</label>
+                            <div class="color-input-wrap">
+                                <input type="color" id="n_editTemaCorPrimaria" value="#E5B25D" oninput="previewTemaNovo()">
+                                <input type="text" id="n_editTemaCorPrimariaHex" value="#E5B25D" oninput="syncColorPicker('n_editTemaCorPrimaria','n_editTemaCorPrimariaHex')">
+                            </div>
+                        </div>
+                        <div class="theme-color-field">
+                            <label>💙 Cor Secundária</label>
+                            <div class="color-input-wrap">
+                                <input type="color" id="n_editTemaCorSecundaria" value="#1E90FF" oninput="previewTemaNovo()">
+                                <input type="text" id="n_editTemaCorSecundariaHex" value="#1E90FF" oninput="syncColorPicker('n_editTemaCorSecundaria','n_editTemaCorSecundariaHex')">
+                            </div>
+                        </div>
+                        <div class="theme-color-field">
+                            <label>🖱️ Botões</label>
+                            <div class="color-input-wrap">
+                                <input type="color" id="n_editTemaCorBotao" value="#E5B25D" oninput="previewTemaNovo()">
+                                <input type="text" id="n_editTemaCorBotaoHex" value="#E5B25D" oninput="syncColorPicker('n_editTemaCorBotao','n_editTemaCorBotaoHex')">
+                            </div>
+                        </div>
+                        <div class="theme-color-field">
+                            <label>🖱️ Hover (Botões)</label>
+                            <div class="color-input-wrap">
+                                <input type="color" id="n_editTemaCorHover" value="#d4a14c" oninput="previewTemaNovo()">
+                                <input type="text" id="n_editTemaCorHoverHex" value="#d4a14c" oninput="syncColorPicker('n_editTemaCorHover','n_editTemaCorHoverHex')">
+                            </div>
+                        </div>
+                        <div class="theme-color-field">
+                            <label>🌑 Fundo</label>
+                            <div class="color-input-wrap">
+                                <input type="color" id="n_editTemaCorBg" value="#0d0d0d" oninput="previewTemaNovo()">
+                                <input type="text" id="n_editTemaCorBgHex" value="#0d0d0d" oninput="syncColorPicker('n_editTemaCorBg','n_editTemaCorBgHex')">
+                            </div>
+                        </div>
+                        <div class="theme-color-field">
+                            <label>🃏 Superfície</label>
+                            <div class="color-input-wrap">
+                                <input type="color" id="n_editTemaCorSurface" value="#1a1a1a" oninput="previewTemaNovo()">
+                                <input type="text" id="n_editTemaCorSurfaceHex" value="#1a1a1a" oninput="syncColorPicker('n_editTemaCorSurface','n_editTemaCorSurfaceHex')">
+                            </div>
+                        </div>
+                        <div class="theme-color-field">
+                            <label>🔲 Bordas</label>
+                            <div class="color-input-wrap">
+                                <input type="color" id="n_editTemaCorBorda" value="#333333" oninput="previewTemaNovo()">
+                                <input type="text" id="n_editTemaCorBordaHex" value="#333333" oninput="syncColorPicker('n_editTemaCorBorda','n_editTemaCorBordaHex')">
+                            </div>
+                        </div>
+                        <div class="theme-color-field">
+                            <label>📝 Texto</label>
+                            <div class="color-input-wrap">
+                                <input type="color" id="n_editTemaCorTexto" value="#ffffff" oninput="previewTemaNovo()">
+                                <input type="text" id="n_editTemaCorTextoHex" value="#ffffff" oninput="syncColorPicker('n_editTemaCorTexto','n_editTemaCorTextoHex')">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Preview ao vivo -->
+                    <div class="theme-preview" id="n_themePreview">
+                        <div class="theme-preview-header">
+                            <span>Preview</span>
+                            <button class="theme-preview-btn" id="n_themePreviewBtn">Botão</button>
+                        </div>
+                        <div class="theme-preview-card" id="n_themePreviewCard">
+                            <div class="theme-preview-title">Exemplo de Produto</div>
+                            <div class="theme-preview-price" id="n_themePreviewPrice">R$ 45,90</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="fecharModal('modalNovaEmpresa')">Cancelar</button>
+                <button class="btn-primary" id="btnSalvarNovaEmpresa">Finalizar e Criar Loja</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Modal: Editar Empresa -->
+    <div class="modal" id="modalEditarEmpresa">
+        <div class="modal-content" style="max-width: 580px;">
+            <span class="modal-close" onclick="fecharModal('modalEditarEmpresa')">&times;</span>
+            <h2>Editar Empresa</h2>
+            
+            <input type="hidden" id="editEmpId">
+
+            <div class="form-group">
+                <label>Nome da Empresa</label>
+                <input type="text" id="editEmpNome" required>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Plano</label>
+                    <select id="editEmpPlano">
+                        <option value="basico">Básico</option>
+                        <option value="pro">Pro</option>
+                        <option value="premium">Premium</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Segmento</label>
+                    <select id="editEmpSegmento">
+                        <option value="">— Selecione —</option>
+                        <option value="restaurante">🍽️ Bares / Restaurantes</option>
+                        <option value="barbearia">💈 Barbearia</option>
+                        <option value="loja_roupas">👗 Loja de Roupas</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Status</label>
+                    <select id="editEmpStatus">
+                        <option value="ativo">Ativo (Acesso Liberado)</option>
+                        <option value="inativo">Inativo (Acesso Bloqueado)</option>
+                    </select>
+                </div>
+            </div>
+
+            <hr class="modal-divider">
+            <h3>🎨 Identidade Visual</h3>
+            <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:1rem;">
+                Configure as cores que serão aplicadas no cardápio, admin e atendente da loja.
+            </p>
+
+            <div class="theme-editor">
+                <div class="theme-editor-grid">
+                    <div class="theme-color-field">
+                        <label>🎨 Cor Primária</label>
+                        <div class="color-input-wrap">
+                            <input type="color" id="editTemaCorPrimaria" value="#E5B25D" oninput="previewTema()">
+                            <input type="text" id="editTemaCorPrimariaHex" value="#E5B25D" oninput="syncColorPicker('editTemaCorPrimaria','editTemaCorPrimariaHex')">
+                        </div>
+                        <small>Botões, preços e destaques</small>
+                    </div>
+                    <div class="theme-color-field">
+                        <label>💙 Cor Secundária</label>
+                        <div class="color-input-wrap">
+                            <input type="color" id="editTemaCorSecundaria" value="#1E90FF" oninput="previewTema()">
+                            <input type="text" id="editTemaCorSecundariaHex" value="#1E90FF" oninput="syncColorPicker('editTemaCorSecundaria','editTemaCorSecundariaHex')">
+                        </div>
+                        <small>Links, sub-destaques</small>
+                    </div>
+                    <div class="theme-color-field">
+                        <label>🖱️ Cor dos Botões</label>
+                        <div class="color-input-wrap">
+                            <input type="color" id="editTemaCorBotao" value="#E5B25D" oninput="previewTema()">
+                            <input type="text" id="editTemaCorBotaoHex" value="#E5B25D" oninput="syncColorPicker('editTemaCorBotao','editTemaCorBotaoHex')">
+                        </div>
+                        <small>Botão de comprar, confirmar e ações</small>
+                    </div>
+                    <div class="theme-color-field">
+                        <label>🖱️ Hover (Botões)</label>
+                        <div class="color-input-wrap">
+                            <input type="color" id="editTemaCorHover" value="#d4a14c" oninput="previewTema()">
+                            <input type="text" id="editTemaCorHoverHex" value="#d4a14c" oninput="syncColorPicker('editTemaCorHover','editTemaCorHoverHex')">
+                        </div>
+                        <small>Cor do botão ao passar o mouse</small>
+                    </div>
+                    <div class="theme-color-field">
+                        <label>🌑 Fundo Geral</label>
+                        <div class="color-input-wrap">
+                            <input type="color" id="editTemaCorBg" value="#0d0d0d" oninput="previewTema()">
+                            <input type="text" id="editTemaCorBgHex" value="#0d0d0d" oninput="syncColorPicker('editTemaCorBg','editTemaCorBgHex')">
+                        </div>
+                        <small>Background da página</small>
+                    </div>
+                    <div class="theme-color-field">
+                        <label>🃏 Fundo dos Cards</label>
+                        <div class="color-input-wrap">
+                            <input type="color" id="editTemaCorSurface" value="#1a1a1a" oninput="previewTema()">
+                            <input type="text" id="editTemaCorSurfaceHex" value="#1a1a1a" oninput="syncColorPicker('editTemaCorSurface','editTemaCorSurfaceHex')">
+                        </div>
+                        <small>Cards, modais e painéis</small>
+                    </div>
+                    <div class="theme-color-field">
+                        <label>🔲 Bordas</label>
+                        <div class="color-input-wrap">
+                            <input type="color" id="editTemaCorBorda" value="#333333" oninput="previewTema()">
+                            <input type="text" id="editTemaCorBordaHex" value="#333333" oninput="syncColorPicker('editTemaCorBorda','editTemaCorBordaHex')">
+                        </div>
+                        <small>Bordas de inputs, modais e separadores</small>
+                    </div>
+                    <div class="theme-color-field">
+                        <label>📝 Texto</label>
+                        <div class="color-input-wrap">
+                            <input type="color" id="editTemaCorTexto" value="#ffffff" oninput="previewTema()">
+                            <input type="text" id="editTemaCorTextoHex" value="#ffffff" oninput="syncColorPicker('editTemaCorTexto','editTemaCorTextoHex')">
+                        </div>
+                        <small>Textos gerais do painel</small>
+                    </div>
+                </div>
+
+                <!-- Preview ao vivo -->
+                <div class="theme-preview" id="themePreview">
+                    <div class="theme-preview-header">
+                        <span>Preview ao Vivo</span>
+                        <button class="theme-preview-btn" id="themePreviewBtn">Botão</button>
+                    </div>
+                    <div class="theme-preview-card" id="themePreviewCard">
+                        <div class="theme-preview-title" id="themePreviewTitle">Nome do Produto</div>
+                        <div class="theme-preview-price" id="themePreviewPrice">R$ 29,90</div>
+                    </div>
+                    <div class="theme-preview-badge" id="themePreviewBadge">Destaque</div>
+                </div>
+
+                <div style="display:flex; gap:10px; margin-top:0.5rem;">
+                    <button class="btn-outline" onclick="restaurarTemapadrao()" style="font-size:0.8rem; padding:8px 14px;">
+                        ↺ Restaurar Padrão
+                    </button>
+                </div>
+
+                <!-- Campos legados (hidden) -->
+                <input type="hidden" id="editEmpCor">
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-outline" onclick="fecharModal('modalEditarEmpresa')">Cancelar</button>
+                <button class="btn-primary" id="btnSalvarEdicaoEmpresa">Salvar Alterações</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Faturamento por Loja -->
+    <div class="modal" id="modalFaturamentoLojas">
+        <div class="modal-content" style="max-width: 650px;">
+            <span class="modal-close" onclick="fecharModal('modalFaturamentoLojas')">&times;</span>
+            <div style="margin-bottom: 1.5rem;">
+                <h2 style="margin-bottom: 5px;">💰 Faturamento por Loja</h2>
+                <p class="modal-subtitle">Detalhamento das vendas concluídas (Produtos + Serviços) por estabelecimento.</p>
+            </div>
+            
+            <div class="table-container" style="max-height: 60vh; overflow-y: auto; border: 1px solid rgba(255,255,255,0.05); border-radius: 12px;">
+                <table class="saas-table compact">
+                    <thead style="position: sticky; top: 0; background: var(--surface-bg, #1a1a1a); z-index: 2;">
+                        <tr>
+                            <th>🏢 Empresa</th>
+                            <th style="text-align: right;">📦 Produtos</th>
+                            <th style="text-align: right;">✂️ Serviços</th>
+                            <th style="text-align: right;">💎 Total</th>
+                        </tr>
+                    </thead>
+                    <tbody id="listaFaturamentoLojas">
+                        <tr><td colspan="4" style="text-align: center; padding: 2rem;">Carregando dados financeiros...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="modal-actions" style="margin-top: 1.5rem; justify-content: flex-end;">
+                <button class="btn-outline" onclick="fecharModal('modalFaturamentoLojas')">Fechar</button>
+            </div>
+        </div>
+    </div>
+    <!-- Config Central (deve vir antes do Supabase) -->
+    <script src="/event-bus.js"></script>
+    <script src="/module-registry.js"></script>
+    <script src="/config-manager.js"></script>
+    <script src="/bootstrap.js"></script>
+    <script src="/config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    
+    <!-- Script Específico do SaaS Admin -->
+    <script src="/admin-saas.js"></script>
+</body>
+
+</html>

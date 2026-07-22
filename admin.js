@@ -1,0 +1,4826 @@
+/**
+         * RiverTech - Admin Panel
+         */
+const sb = window.supabase.createClient(window.APP_CONFIG.SUPABASE_URL, window.APP_CONFIG.SUPABASE_ANON_KEY);
+window.sb = sb;
+
+// --- Configurações Cloudinary ---
+const CLOUDINARY_CLOUD_NAME = 'dzt571tv8';
+const CLOUDINARY_UPLOAD_PRESET = 'rivertechimagens';
+
+// --- State ---
+let produtos = [];
+let categorias = [];
+let cupons = [];
+let pedidos = [];
+let imagensGaleria = [];
+let currentProductImages = []; 
+let zonasEntrega = [];         // --- MOVIDO PARA O TOPO ---
+let cancellationReasons = [];  // --- MOVIDO PARA O TOPO ---
+let motivosEstoque = [];       // --- MOVIDO PARA O TOPO ---
+let chartMetricas = null;
+
+// --- Filtros de pedidos ---
+
+let filtrosPedidos = {
+    dataInicio: '',
+    dataFim: '',
+    cliente: '',
+    atendente: '',
+    valorMin: '',
+    valorMax: '',
+    status: ''
+};
+
+let currentModoDashboard = 'hoje-op'; // Inicia com o operacional de hoje
+let openingTime = '18:00';
+let closingTime = '02:00';
+let currentSettingsId = null;
+
+// --- Utils ---
+function formatNumber(val) {
+    return (parseFloat(val) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatCurrency(val) {
+    return (parseFloat(val) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function truncateNeighborhoods(text) {
+    if (!text) return '—';
+    const parts = text.split(',').map(p => p.trim()).filter(p => p);
+    if (parts.length <= 3) return text;
+    return parts.slice(0, 3).join(', ') + '...';
+}
+
+// --- DOM ---
+const $toast = document.getElementById('toast');
+
+function showToast(msg, type = '') {
+    $toast.textContent = msg;
+    $toast.className = 'toast show' + (type ? ' ' + type : '');
+    setTimeout(() => { $toast.className = 'toast'; }, 3000);
+}
+
+function customConfirm(title, message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('modalConfirmacao');
+        const btnOk = document.getElementById('btnConfirmarOk');
+        const btnCancel = document.getElementById('btnConfirmarCancelar');
+
+        document.getElementById('confirmTitle').textContent = title;
+        document.getElementById('confirmMessage').textContent = message;
+
+        modal.classList.add('active');
+
+        const handleOk = () => {
+            modal.classList.remove('active');
+            btnOk.removeEventListener('click', handleOk);
+            btnCancel.removeEventListener('click', handleCancel);
+            resolve(true);
+        };
+
+        const handleCancel = () => {
+            modal.classList.remove('active');
+            btnOk.removeEventListener('click', handleOk);
+            btnCancel.removeEventListener('click', handleCancel);
+            resolve(false);
+        };
+
+        btnOk.addEventListener('click', handleOk);
+        btnCancel.addEventListener('click', handleCancel);
+    });
+}
+
+function customPrompt(title, message, defaultValue = '') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('modalPrompt');
+        const input = document.getElementById('promptInput');
+        const btnOk = document.getElementById('btnPromptOk');
+        const btnCancel = document.getElementById('btnPromptCancelar');
+
+        document.getElementById('promptTitle').textContent = title;
+        document.getElementById('promptMessage').textContent = message;
+        input.value = defaultValue;
+
+        modal.classList.add('active');
+        setTimeout(() => input.focus(), 100);
+
+        const handleOk = () => {
+            const val = input.value;
+            modal.classList.remove('active');
+            btnOk.removeEventListener('click', handleOk);
+            btnCancel.removeEventListener('click', handleCancel);
+            resolve(val);
+        };
+
+        const handleCancel = () => {
+            modal.classList.remove('active');
+            btnOk.removeEventListener('click', handleOk);
+            btnCancel.removeEventListener('click', handleCancel);
+            resolve(null);
+        };
+
+        btnOk.addEventListener('click', handleOk);
+        btnCancel.addEventListener('click', handleCancel);
+
+        // Enter key support
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter') handleOk();
+            if (e.key === 'Escape') handleCancel();
+        };
+    });
+}
+
+window.currentPromoType = 'val';
+
+window.setPromoType = (type) => {
+    window.currentPromoType = type;
+    document.querySelectorAll('.promo-type-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.type === type);
+    });
+    atualizarPromoPreview();
+};
+
+function atualizarPromoPreview() {
+    const precoBase = parseFloat(document.getElementById('prodPreco').value) || 0;
+    const inputVal = parseFloat(document.getElementById('prodPrecoPromo').value) || 0;
+    const previewEl = document.getElementById('promoPreview');
+    
+    if (inputVal <= 0 || precoBase <= 0) {
+        previewEl.style.display = 'none';
+        return;
+    }
+    
+    let finalPromo = inputVal;
+    let pctLabel = "";
+
+    if (window.currentPromoType === 'pct') {
+        if (inputVal > 100) {
+            previewEl.style.display = 'block';
+            previewEl.textContent = `⚠️ Desconto não pode ser maior que 100%`;
+            previewEl.style.color = 'var(--danger)';
+            return;
+        }
+        finalPromo = precoBase * (1 - inputVal / 100);
+        pctLabel = `(${inputVal}% OFF)`;
+    } else {
+        if (inputVal >= precoBase) {
+            previewEl.style.display = 'block';
+            previewEl.textContent = `⚠️ Preço promo deve ser menor que o original`;
+            previewEl.style.color = 'var(--danger)';
+            return;
+        }
+        const pctCalculado = Math.round((1 - (inputVal / precoBase)) * 100);
+        pctLabel = isFinite(pctCalculado) && pctCalculado > 0 ? `(${pctCalculado}% OFF)` : "";
+    }
+    
+    previewEl.style.display = 'block';
+    previewEl.style.color = 'var(--warning)';
+    previewEl.textContent = `Preço Final: ${formatCurrency(finalPromo)} ${pctLabel}`;
+}
+
+// Listeners para preview de promo
+document.addEventListener('DOMContentLoaded', () => {
+    const pBase = document.getElementById('prodPreco');
+    const pPromo = document.getElementById('prodPrecoPromo');
+    if (pBase) pBase.addEventListener('input', atualizarPromoPreview);
+    if (pPromo) pPromo.addEventListener('input', atualizarPromoPreview);
+
+    const inputTelefone = document.getElementById('cpTelefone');
+    if (inputTelefone) {
+        inputTelefone.addEventListener('input', () => {
+            let digits = inputTelefone.value.replace(/\D/g, '').slice(0, 11);
+            let formatted = digits;
+            if (digits.length > 2) formatted = `(${digits.slice(0,2)}) ${digits.slice(2)}`;
+            if (digits.length > 7) formatted = `(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}`;
+            inputTelefone.value = formatted;
+        });
+    }
+});
+
+function fecharModal(id) {
+    document.getElementById(id).classList.remove('active');
+    // Reset da conversão de Lista de Espera ao fechar modal de agendamento
+    if (id === 'modalNovoAgendamento' && window.__AGENDA) {
+        window.__AGENDA._listaEsperaConversaoId = null;
+    }
+}
+
+function abrirModal(id) {
+    document.getElementById(id).classList.add('active');
+}
+
+/**
+ * Atalho para esconder/mostrar elementos do DOM e aplicar classe de controle.
+ */
+function toggleElement(el, show, displayType = null) {
+    if (!el) return;
+    if (show) {
+        el.classList.remove('module-hidden');
+        if (displayType) {
+            el.style.display = displayType;
+        } else {
+            el.style.removeProperty('display');
+        }
+    } else {
+        el.style.display = 'none';
+        el.classList.add('module-hidden');
+    }
+}
+
+// Fechar modal ao clicar fora (no backdrop)
+document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('admin-modal-backdrop')) {
+        const modalId = e.target.id;
+        // Se for um modal de confirmação ou prompt, simulamos o clique no cancelar para resolver a Promise
+        if (modalId === 'modalConfirmacao') {
+            document.getElementById('btnConfirmarCancelar').click();
+        } else if (modalId === 'modalPrompt') {
+            document.getElementById('btnPromptCancelar').click();
+        } else {
+            fecharModal(modalId);
+        }
+    }
+});
+
+// --- Auth ---
+document.getElementById('btnLogin').onclick = async () => {
+    const btn = document.getElementById('btnLogin');
+    const errEl = document.getElementById('loginError');
+
+    try {
+        const email = document.getElementById('loginEmail').value.trim();
+        const senha = document.getElementById('loginSenha').value;
+
+        if (!email || !senha) {
+            errEl.textContent = 'Preencha todos os campos.';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Entrando...';
+        errEl.style.display = 'none';
+
+        const { data, error } = await sb.auth.signInWithPassword({ email, password: senha });
+
+        if (error) {
+            errEl.textContent = 'E-mail ou senha incorretos.';
+            errEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Entrar';
+            return;
+        }
+
+        // Check if admin (SaaS aware)
+        let { data: adminData, error: adminError } = await sb.from('admin_users').select('id').eq('user_id', data.user.id).single();
+
+        // Fallback 1: Verificar se é Super Admin
+        const { data: isSuper } = await sb.rpc('is_super_admin', { _user_id: data.user.id });
+        
+        if (isSuper) {
+            console.info('[Admin] Super Admin detectado. Ignorando verificações de permissão local.');
+            adminData = { id: 'super-admin', role: 'super' };
+            adminError = null;
+        } else if (adminError || !adminData) {
+            // Fallback 2: Verificar na tabela de usuários do SaaS caso a tabela legada não tenha o registro
+            const { data: saasUser, error: saasError } = await sb
+                .from('usuarios')
+                .select('id, role')
+                .eq('id', data.user.id)
+                .eq('role', 'admin')
+                .single();
+            
+            if (!saasError && saasUser) {
+                adminData = saasUser;
+                adminError = null;
+            }
+        }
+
+        if (adminError || !adminData) {
+            errEl.textContent = 'Você não tem permissão de administrador.';
+            errEl.style.display = 'block';
+            await sb.auth.signOut();
+            btn.disabled = false;
+            btn.textContent = 'Entrar';
+            return;
+        }
+
+        // --- Multi-Tenant: carregar empresa_id do usuário logado ---
+        const empresaId = await initTenantAdmin(sb, data.user.id);
+        if (!empresaId) {
+            errEl.textContent = 'Usuário não está vinculado a nenhuma empresa. Contate o suporte.';
+            errEl.style.display = 'block';
+            await sb.auth.signOut();
+            btn.disabled = false;
+            btn.textContent = 'Entrar';
+            return;
+        }
+
+        await showAdmin();
+
+        // Reiniciar o botão visualmente caso deslogue depois
+        btn.disabled = false;
+        btn.textContent = 'Entrar';
+
+    } catch (err) {
+        errEl.textContent = 'Erro inesperado: ' + err.message;
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Entrar no Sistema';
+    }
+};
+
+// Suporte à tecla Enter no Login
+document.getElementById('loginSenha').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btnLogin').click();
+});
+document.getElementById('loginEmail').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btnLogin').click();
+});
+
+document.getElementById('btnLogout').onclick = async () => {
+    await sb.auth.signOut();
+    document.getElementById('adminLayout').classList.remove('visible');
+    document.getElementById('loginScreen').style.display = 'flex';
+    document.getElementById('loginSenha').value = '';
+};
+
+// Check session on load
+async function checkSession() {
+    try {
+        const { data: { session } } = await sb.auth.getSession();
+        if (!session) return;
+
+        const userId = session.user.id;
+        let isAuthorized = false;
+
+        // 1. Verificar se é Super Admin
+        const { data: isSuper } = await sb.rpc('is_super_admin', { _user_id: userId });
+        
+        if (isSuper) {
+            console.info('[Auth] Super Admin detectado na sessão.');
+            isAuthorized = true;
+        } else {
+            // 2. Verificar se é Admin na tabela legada
+            const { data: adminData } = await sb.from('admin_users').select('id').eq('user_id', userId).single();
+            if (adminData) {
+                isAuthorized = true;
+            } else {
+                // 3. Verificar se é Admin na tabela SaaS
+                const { data: saasUser } = await sb.from('usuarios').select('id').eq('id', userId).eq('role', 'admin').single();
+                if (saasUser) isAuthorized = true;
+            }
+        }
+
+        if (isAuthorized) {
+            const empresaId = await initTenantAdmin(sb, userId);
+            if (empresaId) {
+                showAdmin();
+            } else {
+                console.warn('[Auth] Usuário autorizado mas sem empresa vinculada.');
+            }
+        }
+    } catch (err) {
+        console.error("Erro na verificação de sessão:", err);
+    }
+}
+
+async function initAdminPublicTheme() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (!urlParams.get('tenant') && !urlParams.get('loja')) return;
+    try {
+        await initTenantPublico(sb);
+    } catch (err) {
+        console.warn('[Admin] Falha ao inicializar tema público:', err?.message || err);
+    }
+}
+
+initAdminPublicTheme();
+checkSession();
+
+sb.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_OUT') {
+        document.getElementById('adminLayout').classList.remove('visible');
+        document.getElementById('loginScreen').style.display = 'flex';
+        document.getElementById('loginSenha').value = '';
+        
+        // Limpar cache do Tenant e estado local para evitar vazamento entre logins na mesma aba
+        if (typeof invalidateTenantCache === 'function') {
+            invalidateTenantCache();
+        } else if (window.TENANT) {
+            window.TENANT.pronto = false;
+            window.TENANT.empresa_id = null;
+            window.TENANT.slug = null;
+            window.TENANT.nome = null;
+            window.TENANT.cor_primaria = null;
+            window.TENANT.logo_url = null;
+            window.TENANT.modulos = {};
+        }
+        produtos = [];
+        categorias = [];
+        cupons = [];
+        pedidos = [];
+    }
+});
+
+async function showAdmin() {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('adminLayout').classList.add('visible');
+    
+    // Atualizar link do cardápio com o slug do tenant
+    const btnCardapio = document.querySelector('.btn-link-cardapio');
+    if (btnCardapio && window.TENANT?.slug) {
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        btnCardapio.href = isLocal 
+            ? `/cardapio.html?loja=${window.TENANT.slug}` 
+            : `/${window.TENANT.slug}`;
+    }
+
+    await carregarTudo();
+
+    // Restaurar última aba ativa do localStorage
+    try {
+        const savedTab = localStorage.getItem('admin_active_tab');
+        if (savedTab) {
+            const tabBtn = document.querySelector(`.tab-btn[data-tab="${savedTab}"]`);
+            if (tabBtn) {
+                const isVisible = tabBtn.style.display !== 'none' && !tabBtn.classList.contains('module-hidden');
+                console.log('[Tabs] Restaurando aba salva:', savedTab, '| Visível:', isVisible);
+                if (isVisible) {
+                    switchTab(savedTab, tabBtn);
+                }
+            }
+        }
+    } catch(e) { console.warn('[Tabs] Erro ao restaurar aba:', e); }
+}
+
+// --- Tabs ---
+function switchTab(tabId, btn, persist = true) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    
+    if (btn) btn.classList.add('active');
+    
+    // Sincroniza sidebar se existir
+    const sideItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+    if (sideItem) sideItem.classList.add('active');
+
+    const content = document.getElementById('tab-' + tabId);
+    if (content) content.classList.add('active');
+
+    // Persistir aba ativa no localStorage para restaurar após reload
+    if (persist) {
+        try { localStorage.setItem('admin_active_tab', tabId); } catch(e) {}
+    }
+}
+
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.onclick = () => switchTab(btn.dataset.tab, btn);
+});
+
+// Sub-tabs handling
+document.querySelectorAll('.subtab-btn').forEach(btn => {
+    if (!btn.dataset.subtab) return; // Ignora se não for uma subaba de navegação (ex: botões do dashboard)
+
+    btn.onclick = (e) => {
+        const tabContent = e.target.closest('.tab-content');
+        if (!tabContent) return;
+        tabContent.querySelectorAll('.subtab-btn').forEach(b => b.classList.remove('active'));
+        tabContent.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        const target = document.getElementById('subtab-' + btn.dataset.subtab);
+        if (target) {
+            target.classList.add('active');
+            if (btn.dataset.subtab === 'dashboard-metricas') {
+                setTimeout(atualizarGraficoMetricas, 100);
+            }
+            if (btn.dataset.subtab === 'config-equipe') {
+                carregarAtendentesLista();
+            }
+        }
+    };
+});
+
+function atualizarGraficoMetricas(filtrados = null) {
+    if (!filtrados) filtrados = [...pedidos];
+    
+    const agrupamento = document.getElementById('selectAgrupamentoMetricas')?.value || 'dia';
+    const canvas = document.getElementById('chartMetricas');
+    if (!canvas) return;
+
+    let dadosAgrupados = {};
+    let labels = [];
+    let valores = [];
+
+    const diasSemana = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+
+    if (agrupamento === 'dia') {
+        filtrados.forEach(p => {
+            const data = new Date(p.created_at).toLocaleDateString('pt-BR');
+            dadosAgrupados[data] = (dadosAgrupados[data] || 0) + parseFloat(p.total);
+        });
+        labels = Object.keys(dadosAgrupados).sort((a, b) => {
+            const dateA = new Date(a.split('/').reverse().join('-'));
+            const dateB = new Date(b.split('/').reverse().join('-'));
+            return dateA - dateB;
+        });
+    } else if (agrupamento === 'semana') {
+        diasSemana.forEach(d => dadosAgrupados[d] = 0);
+        filtrados.forEach(p => {
+            const dia = diasSemana[new Date(p.created_at).getDay()];
+            dadosAgrupados[dia] += parseFloat(p.total);
+        });
+        labels = ['Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo'];
+    } else if (agrupamento === 'mes') {
+        filtrados.forEach(p => {
+            const data = new Date(p.created_at);
+            const mes = data.toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
+            dadosAgrupados[mes] = (dadosAgrupados[mes] || 0) + parseFloat(p.total);
+        });
+        labels = Object.keys(dadosAgrupados).sort((a, b) => {
+            const [mesA, anoA] = a.split(' de ');
+            const [mesB, anoB] = b.split(' de ');
+            return new Date(anoA, 0) - new Date(anoB, 0); // Ordenação simplificada
+        });
+    } else if (agrupamento === 'hora') {
+        for (let i = 0; i < 24; i++) dadosAgrupados[i] = 0;
+        filtrados.forEach(p => {
+            const hora = new Date(p.created_at).getHours();
+            dadosAgrupados[hora] += parseFloat(p.total);
+        });
+        labels = Object.keys(dadosAgrupados).map(h => h + 'h');
+    }
+
+    labels.forEach(l => {
+        const key = agrupamento === 'hora' ? l.replace('h', '') : l;
+        valores.push(dadosAgrupados[key] || 0);
+    });
+
+    calcularInsights(filtrados);
+
+    if (chartMetricas) chartMetricas.destroy();
+
+    const ctx = canvas.getContext('2d');
+    chartMetricas = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Faturamento (R$)',
+                data: valores,
+                borderColor: '#e5b25d',
+                backgroundColor: 'rgba(229, 178, 93, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4,
+                pointRadius: 4,
+                pointBackgroundColor: '#e5b25d'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `Faturamento: R$ ${formatNumber(ctx.parsed.y)}`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { callback: v => 'R$ ' + v.toLocaleString('pt-BR') }
+                }
+            }
+        }
+    });
+}
+
+function calcularInsights(filtrados) {
+    if (!filtrados) filtrados = getPedidosFiltrados();
+
+    const diasSemana = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+    let faturamentoPorDiaSemana = {};
+    let faturamentoPorHora = {};
+    let faturamentoPorData = {};
+    let faturamentoPorCategoria = {};
+    let qtdPorProduto = {};
+    
+    let totalCancelados = 0;
+    let totalFaturado = 0;
+    
+    diasSemana.forEach(d => faturamentoPorDiaSemana[d] = 0);
+    for (let i = 0; i < 24; i++) faturamentoPorHora[i] = 0;
+
+    filtrados.forEach(p => {
+        const dObj = new Date(p.created_at);
+        if (isNaN(dObj.getTime())) return;
+
+        const isConcluido = p.status === 'concluido' || p.status === 'finalizado';
+        const valor = parseFloat(p.total || 0);
+
+        if (p.status === 'cancelado') totalCancelados++;
+        
+        // Só contabiliza faturamento se estiver concluído/finalizado
+        if (isConcluido) {
+            totalFaturado += valor;
+
+            const diaSem = diasSemana[dObj.getDay()];
+            const hora = dObj.getHours();
+            const dataStr = dObj.toLocaleDateString('pt-BR');
+
+            faturamentoPorDiaSemana[diaSem] += valor;
+            faturamentoPorHora[hora] += valor;
+            faturamentoPorData[dataStr] = (faturamentoPorData[dataStr] || 0) + valor;
+
+            if (p.order_items) {
+                p.order_items.forEach(item => {
+                    const prodNome = item.product_name || 'Produto sem nome';
+                    const qtd = parseInt(item.quantity) || 0;
+                    const preco = parseFloat(item.unit_price || item.price || 0);
+
+                    qtdPorProduto[prodNome] = (qtdPorProduto[prodNome] || 0) + qtd;
+                    
+                    let catNome = 'Geral';
+                    if (p.is_agendamento) {
+                        catNome = 'Serviços';
+                    } else {
+                        const prod = produtos.find(pr => pr.id === item.product_id);
+                        if (prod) {
+                            const cat = categorias.find(c => c.id === prod.category_id);
+                            if (cat) catNome = cat.name;
+                        }
+                    }
+                    
+                    faturamentoPorCategoria[catNome] = (faturamentoPorCategoria[catNome] || 0) + (preco * qtd);
+                });
+            }
+        }
+    });
+
+    // Cálculos de Tempo
+    let melhorDiaSem = { nome: '--', valor: -1 };
+    let piorDiaSem = { nome: '--', valor: Infinity };
+    let melhorHora = { hora: '--', valor: -1 };
+
+    Object.entries(faturamentoPorDiaSemana).forEach(([dia, valor]) => {
+        if (valor > melhorDiaSem.valor) melhorDiaSem = { nome: dia, valor: valor };
+        if (valor < piorDiaSem.valor && valor > 0) piorDiaSem = { nome: dia, valor: valor };
+    });
+
+    Object.entries(faturamentoPorHora).forEach(([hora, valor]) => {
+        if (valor > melhorHora.valor) melhorHora = { hora: hora, valor: valor };
+    });
+
+    // Top 3 Dias do Mês
+    const top3Dias = Object.entries(faturamentoPorData)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3);
+
+    // Performance de Vendas
+    const totalPedidos = filtrados.length;
+    const ticketMedio = totalPedidos > 0 ? (totalFaturado / totalPedidos) : 0;
+    const uniqueDaysCount = Object.keys(faturamentoPorData).length || 1;
+    const mediaPedidosDia = (totalPedidos / uniqueDaysCount);
+    const taxaCancelamento = totalPedidos > 0 ? ((totalCancelados / totalPedidos) * 100) : 0;
+
+    // Top Produto/Serviço e Categoria
+    const topProduto = Object.entries(qtdPorProduto).sort((a, b) => b[1] - a[1])[0] || ['--', 0];
+    const topCategoria = Object.entries(faturamentoPorCategoria).sort((a, b) => b[1] - a[1])[0] || ['--', 0];
+
+    // Contexto do módulo para labels dinâmicas
+    const dashCtx = getDashboardContext();
+    const labelTopItem = dashCtx === 'agenda'
+        ? (topProduto[1] > 0 ? `Agendado ${topProduto[1]} ${topProduto[1] === 1 ? 'vez' : 'vezes'}` : 'Nenhum agendado')
+        : (topProduto[1] > 0 ? `Vendido ${topProduto[1]} ${topProduto[1] === 1 ? 'vez' : 'vezes'}` : 'Nenhum vendido');
+    const labelTopCategoria = topCategoria[1] > 0 ? `Faturou R$ ${formatNumber(topCategoria[1])}` : 'Sem faturamento';
+
+    // Atualização do DOM
+    // Tempo
+    document.getElementById('insightMelhorHora').innerText = melhorHora.hora !== '--' ? melhorHora.hora + 'h' : '--';
+    document.getElementById('txtInsightHora').innerText = melhorHora.hora !== '--'
+        ? `Pico de faturamento \u00E0s ${melhorHora.hora}h (R$ ${formatNumber(melhorHora.valor)})`
+        : 'Aguardando dados...';
+
+    document.getElementById('insightMelhorDia').innerText = melhorDiaSem.nome;
+    document.getElementById('txtInsightMelhor').innerText = melhorDiaSem.valor > 0
+        ? `Melhor dia: ${melhorDiaSem.nome.toLowerCase()} (R$ ${formatNumber(melhorDiaSem.valor)})`
+        : 'Aguardando dados...';
+
+    document.getElementById('insightPiorDia').innerText = piorDiaSem.nome !== '--' ? piorDiaSem.nome : '--';
+    document.getElementById('txtInsightPior').innerText = (piorDiaSem.valor > 0 && piorDiaSem.valor !== Infinity)
+        ? `Menor performance: ${piorDiaSem.nome.toLowerCase()} (R$ ${formatNumber(piorDiaSem.valor)})`
+        : 'Aguardando dados...';
+
+    // Vendas
+    document.getElementById('insightTicketMedio').innerText = formatCurrency(ticketMedio);
+    document.getElementById('insightMediaPedidos').innerText = formatNumber(mediaPedidosDia);
+    document.getElementById('insightTaxaCancelamento').innerText = formatNumber(taxaCancelamento) + '%';
+
+    // Destaques — labels dinâmicos conforme contexto do módulo
+    document.getElementById('insightProdutoTop').innerText = topProduto[0];
+    document.getElementById('txtProdutoTop').innerText = labelTopItem;
+    document.getElementById('insightCategoriaTop').innerText = topCategoria[0];
+    document.getElementById('txtCategoriaTop').innerText = labelTopCategoria;
+
+    const topDiasList = top3Dias.length > 0
+        ? top3Dias.map((d, i) => `${i + 1}. ${d[0]} - R$ ${formatNumber(d[1])}`).join('<br>')
+        : 'Nenhum dado dispon\u00EDvel';
+    document.getElementById('insightTopDias').innerHTML = topDiasList;
+
+    // Atualiza labels de destaques na seção do DOM
+    atualizarLabelsDestaques();
+
+    // Gera\u00E7\u00E3o de Insight Inteligente
+    gerarInsightInteligente(melhorHora, melhorDiaSem, piorDiaSem, ticketMedio);
+}
+
+function gerarInsightInteligente(melhorHora, melhorDiaSem, piorDiaSem, ticketMedio) {
+    const el = document.getElementById('txtInsightInteligente');
+    if (!el) return;
+
+    let insight = "";
+    if (melhorHora.hora >= 19 && melhorHora.hora <= 22) {
+        insight = "🔥 Seu pico de vendas acontece no horário nobre (19h - 22h). Reforce o atendimento!";
+    } else if (melhorHora.hora !== '--') {
+        insight = `📈 Identificamos que às ${melhorHora.hora}h é seu momento de maior venda.`;
+    }
+
+    if (melhorDiaSem.nome === 'Sexta-feira' || melhorDiaSem.nome === 'Sábado' || melhorDiaSem.nome === 'Domingo') {
+        insight += " | Finais de semana representam seu maior faturamento.";
+    }
+
+    if (piorDiaSem.nome === 'Segunda-feira') {
+        insight += " | Você tem baixa performance às segundas-feiras. Que tal uma promoção?";
+    }
+
+    if (ticketMedio > 0) {
+        insight += ` | Seu ticket médio atual está em R$ ${formatNumber(ticketMedio)}.`;
+    }
+
+    el.innerText = insight || "Análise concluída: Seu negócio apresenta padrões saudáveis de venda.";
+}
+
+// --- Data Loading ---
+async function carregarTudo() {
+    // 1. Primeiro as configurações (pois o dashboard depende dos horários)
+    await carregarConfiguracoes();
+
+    // 2. Depois o restante em paralelo
+    const promises = [
+        carregarAtendentes(),
+        carregarDashboard()
+    ];
+
+    await Promise.all(promises);
+    aplicarFiltrosDeModulos(); // Novo: Filtra funcionalidades por empresa
+    setupAdminRealtime();
+}
+
+/**
+ * Filtra a interface do lojista escondendo o que não está no plano/módulo ativo.
+ */
+function aplicarFiltrosDeModulos() {
+    if (!window.TENANT || !window.TENANT.pronto) {
+        console.warn('[Modules] Tenant não pronto. Abortando filtros.');
+        return;
+    }
+    const mods = window.TENANT.modulos || {};
+    console.log('[Modules] Aplicando filtros. Módulos ativos:', Object.keys(mods).filter(k => mods[k]));
+    
+    let dynamicCss = '';
+    const toggleSubtab = (subId, ativo) => {
+        if (!ativo) {
+            dynamicCss += `[data-subtab="${subId}"], #subtab-${subId} { display: none !important; }\n`;
+        }
+        
+        const buttons = document.querySelectorAll(`[data-subtab="${subId}"]`);
+        const contents = document.querySelectorAll(`#subtab-${subId}`);
+        
+        // Botões: Forçamos display se ativo (geralmente inline-block)
+        buttons.forEach(b => toggleElement(b, ativo, 'inline-block'));
+        
+        // Conteúdos: Nunca forçamos display se ativo, deixamos o CSS .active controlar
+        contents.forEach(c => toggleElement(c, ativo, null));
+    };
+
+    // 1. PRODUTOS
+    const mProdGerenciar = isModuloAtivo('produtos_gerenciar');
+    const mProdCategorias = isModuloAtivo('produtos_categorias');
+    const mProdEstoque = isModuloAtivo('produtos_estoque');
+    
+    toggleSubtab('lista-produtos', mProdGerenciar);
+    toggleSubtab('lista-categorias', mProdCategorias);
+    toggleSubtab('lista-estoque', mProdEstoque);
+    
+    toggleElement(document.getElementById('stockAlertPanel'), mProdEstoque);
+    toggleElement(document.getElementById('groupEstoqueCard'), mProdEstoque);
+    document.querySelectorAll('.col-estoque').forEach(el => toggleElement(el, mProdEstoque, 'table-cell'));
+    toggleElement(document.getElementById('prodEstoqueMin')?.closest('.form-group'), mProdEstoque);
+
+    const mQualquerProduto = mProdGerenciar || mProdCategorias || mProdEstoque;
+    const navProdutos = document.getElementById('nav-produtos');
+    toggleElement(navProdutos, mQualquerProduto, 'flex');
+    if (navProdutos) navProdutos.classList.toggle('module-visible', mQualquerProduto);
+    toggleElement(document.getElementById('side-nav-produtos'), mQualquerProduto, 'flex');
+
+    // 2. VENDAS (Operacional)
+    const mVendasHoje = isModuloAtivo('vendas_hoje_op');
+    const mVendasOntem = isModuloAtivo('vendas_ontem_op');
+    const mVendasGeral = isModuloAtivo('vendas_visao_geral');
+    
+    toggleElement(document.getElementById('btnModoHojeOp'), mVendasHoje);
+    toggleElement(document.getElementById('btnModoOntemOp'), mVendasOntem);
+    toggleElement(document.getElementById('btnModoGeral'), mVendasGeral);
+    
+    const mQualquerVendaOp = mVendasHoje || mVendasOntem || mVendasGeral;
+    toggleSubtab('dashboard-operacional', mQualquerVendaOp);
+
+    // 3. MÉTRICAS (Analítico)
+    const mMetricasDash = isModuloAtivo('metricas_dashboard');
+    const mMetricasTempo = isModuloAtivo('metricas_analise_tempo');
+    const mMetricasPerf = isModuloAtivo('metricas_performance_vendas');
+    const mMetricasDestaques = isModuloAtivo('metricas_destaques');
+
+    toggleElement(document.getElementById('chartMetricas')?.parentElement, mMetricasDash);
+    toggleElement(document.getElementById('insightFraseWrapper'), mMetricasDash || mMetricasTempo || mMetricasPerf || mMetricasDestaques);
+    toggleElement(document.getElementById('section-metricas-tempo'), mMetricasTempo);
+    toggleElement(document.getElementById('section-metricas-performance'), mMetricasPerf);
+    toggleElement(document.getElementById('section-metricas-destaques'), mMetricasDestaques);
+
+    const mQualquerMetrica = mMetricasDash || mMetricasTempo || mMetricasPerf || mMetricasDestaques;
+    toggleSubtab('dashboard-metricas', mQualquerMetrica);
+
+    const mQualquerDashboard = mQualquerVendaOp || mQualquerMetrica;
+    const navDashboard = document.getElementById('nav-dashboard');
+    toggleElement(navDashboard, mQualquerDashboard, 'flex');
+    if (navDashboard) navDashboard.classList.toggle('module-visible', mQualquerDashboard);
+    toggleElement(document.getElementById('side-nav-dashboard'), mQualquerDashboard, 'flex');
+
+    // 4. CONFIGURAÇÕES
+    const mConfigEnd = isModuloAtivo('config_endereco');
+    const mConfigVis = isModuloAtivo('config_personalizacao');
+    const mConfigFrete = isModuloAtivo('config_frete');
+    const mConfigCanc = isModuloAtivo('config_cancelamentos');
+
+    toggleSubtab('config-dados-empresa', mConfigEnd);
+    toggleSubtab('config-visual', mConfigVis);
+    toggleSubtab('config-frete', mConfigFrete);
+    toggleSubtab('config-cancelamento', mConfigCanc);
+
+    // 4b. EQUIPE / ATENDENTES
+    const mProdEquipe = isModuloAtivo('produtos_equipe');
+    toggleSubtab('config-equipe', mProdEquipe);
+
+    const mQualquerConfig = mConfigEnd || mConfigVis || mConfigFrete || mConfigCanc || mProdEquipe;
+    const navConfig = document.getElementById('nav-configuracoes');
+    toggleElement(navConfig, mQualquerConfig, 'flex');
+    if (navConfig) navConfig.classList.toggle('module-visible', mQualquerConfig);
+    toggleElement(document.getElementById('side-nav-configuracoes'), mQualquerConfig, 'flex');
+
+    // 5. CUPONS
+    const mCupons = isModuloAtivo('cupons');
+    const navCupons = document.getElementById('nav-cupons');
+    toggleElement(navCupons, mCupons, 'flex');
+    if (navCupons) navCupons.classList.toggle('module-visible', mCupons);
+    toggleElement(document.getElementById('side-nav-cupons'), mCupons, 'flex');
+
+    // 6. AGENDAMENTO
+    const mAgendamento = isModuloAtivo('agendamento_ativo');
+    const navAgenda = document.getElementById('nav-agenda');
+    toggleElement(navAgenda, mAgendamento, 'flex');
+    if (navAgenda) navAgenda.classList.toggle('module-visible', mAgendamento);
+    toggleElement(document.getElementById('side-nav-agenda'), mAgendamento, 'flex');
+    if (mAgendamento) {
+        const cssEl = document.getElementById('agenda-css');
+        if (cssEl) cssEl.disabled = false;
+    }
+
+    // 7. EXTRAS
+    const mCardapio = isModuloAtivo('cardapio');
+    const btnCardapio = document.querySelector('.btn-link-cardapio');
+    if (btnCardapio) toggleElement(btnCardapio, mCardapio);
+
+    // 8. LOJA DE ROUPAS
+    const mLoja = isModuloAtivo('loja_roupas');
+    const navLoja = document.getElementById('nav-loja');
+    toggleElement(navLoja, mLoja, 'flex');
+    if (navLoja) navLoja.classList.toggle('module-visible', mLoja);
+    toggleElement(document.getElementById('side-nav-loja'), mLoja, 'flex');
+    if (mLoja) {
+        const cssLoja = document.getElementById('loja-css');
+        if (cssLoja) cssLoja.disabled = false;
+    }
+
+    // --- Redirecionamento Automático (Segurança e UX) ---
+    // NOTA: persist=false para não sobrescrever a aba salva pelo usuário
+    
+    // 1. Redirecionamento de Abas Principais
+    const abaAtiva = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (abaAtiva === 'dashboard' && !mQualquerDashboard) { const b = document.getElementById('nav-produtos'); if(b) switchTab('produtos', b, false); }
+    else if (abaAtiva === 'produtos' && !mQualquerProduto) { const b = document.getElementById('nav-dashboard'); if(b) switchTab('dashboard', b, false); }
+    else if (abaAtiva === 'cupons' && !mCupons) { const b = document.getElementById('nav-produtos'); if(b) switchTab('produtos', b, false); }
+    else if (abaAtiva === 'configuracoes' && !mQualquerConfig) { const b = document.getElementById('nav-produtos'); if(b) switchTab('produtos', b, false); }
+
+    // 9. CLIENTES PREMIUM
+    const mClientesPremium = isModuloAtivo('clientes_premium');
+    const navAreaPremium = document.getElementById('nav-area-premium');
+    const sideNavAreaPremium = document.getElementById('side-nav-area-premium');
+    toggleElement(navAreaPremium, mClientesPremium, 'flex');
+    if (navAreaPremium) navAreaPremium.classList.toggle('module-visible', mClientesPremium);
+    toggleElement(sideNavAreaPremium, mClientesPremium, 'flex');
+    toggleSubtab('config-clientes-premium', mClientesPremium);
+    toggleSubtab('config-perfis-cardapio', mClientesPremium);
+
+    if (mClientesPremium && typeof initModuloClientesPremium === 'function') {
+        initModuloClientesPremium();
+    }
+
+    // 2. Redirecionamento de Sub-Abas (dentro da aba atual)
+    const activeTabContent = document.querySelector('.tab-content.active');
+    if (activeTabContent) {
+        const activeSubContent = activeTabContent.querySelector('.subtab-content.active');
+        // Se a sub-aba ativa está oculta
+        if (activeSubContent && (activeSubContent.classList.contains('module-hidden') || activeSubContent.style.display === 'none')) {
+            console.log('[Modules] Sub-aba ativa está desativada. Redirecionando...');
+            const primeiroBotaoVisivel = Array.from(activeTabContent.querySelectorAll('.subtab-btn')).find(b => {
+                return !b.classList.contains('module-hidden') && b.style.display !== 'none';
+            });
+            if (primeiroBotaoVisivel) primeiroBotaoVisivel.click();
+        }
+    }
+    
+    // Injeção de CSS Dinâmico (Opção Nuclear)
+    let styleEl = document.getElementById('dynamic-module-filters');
+    if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'dynamic-module-filters';
+        document.head.appendChild(styleEl);
+    }
+    styleEl.innerHTML = dynamicCss;
+    
+    // Recalcula o alerta de estoque após os filtros de módulo
+    if (typeof atualizarAlertaEstoque === 'function') {
+        atualizarAlertaEstoque();
+    }
+
+    // Atualiza labels e select do Atendente/Profissional conforme módulo ativo
+    atualizarLabelAtendente();
+    atualizarLabelsDestaques();
+}
+
+/**
+ * Valida se um módulo está ativo antes de permitir uma ação.
+ * Bloqueio funcional além do visual.
+ */
+function validarAcessoModulo(modulo) {
+    if (!isModuloAtivo(modulo)) {
+        showToast('Módulo desativado. Contrate para liberar acesso.', 'error');
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Determina o contexto do dashboard com base nos módulos ativos da empresa.
+ * Retorna: 'agenda' | 'produtos' | 'loja' | 'misto'
+ */
+function getDashboardContext() {
+    const temAgenda = isModuloAtivo('agendamento_ativo');
+    const temProdutos = isModuloAtivo('produtos_gerenciar');
+    const temLoja = isModuloAtivo('loja_roupas');
+
+    if (temAgenda && (temProdutos || temLoja)) return 'misto';
+    if (temAgenda) return 'agenda';
+    if (temLoja) return 'loja';
+    return 'produtos'; // padrão / fallback
+}
+
+/**
+ * Atualiza o label e placeholder do select de Atendente
+ * com base no contexto do módulo ativo.
+ */
+function atualizarLabelAtendente() {
+    const label = document.getElementById('labelFiltroAtendente');
+    const select = document.getElementById('filtroAtendente');
+    const ctx = getDashboardContext();
+
+    if (!label || !select) return;
+
+    if (ctx === 'agenda') {
+        label.textContent = '\uD83D\uDC68\u200D\uD83D\uDCBC Profissional';
+        select.querySelector('option[value=""]').textContent = 'Todos os profissionais';
+    } else if (ctx === 'misto') {
+        label.textContent = '\uD83D\uDC68\u200D\uD83D\uDCBC Atendente / Profissional';
+        select.querySelector('option[value=""]').textContent = 'Todos';
+    } else {
+        label.textContent = '\uD83D\uDC68\u200D\uD83D\uDCBC Atendente';
+        select.querySelector('option[value=""]').textContent = 'Todos os atendentes';
+    }
+}
+
+/**
+ * Atualiza os labels da seção Destaques conforme o contexto do módulo.
+ */
+function atualizarLabelsDestaques() {
+    const ctx = getDashboardContext();
+    const labelProduto = document.getElementById('labelProdutoTop');
+    const labelCategoria = document.getElementById('labelCategoriaTop');
+    const txtProdutoTop = document.getElementById('txtProdutoTop');
+    const txtCategoriaTop = document.getElementById('txtCategoriaTop');
+
+    if (ctx === 'agenda') {
+        if (labelProduto) labelProduto.textContent = '\u2702\uFE0F Servi\u00E7o Mais Agendado';
+        if (labelCategoria) labelCategoria.textContent = '\uD83D\uDCCB Servi\u00E7o Mais Lucrativo';
+        if (txtProdutoTop) txtProdutoTop.textContent = 'Mais agendado (Qtd)';
+        if (txtCategoriaTop) txtCategoriaTop.textContent = 'Maior faturamento';
+    } else if (ctx === 'loja') {
+        if (labelProduto) labelProduto.textContent = '\uD83D\uDC57 Pe\u00E7a Mais Vendida';
+        if (labelCategoria) labelCategoria.textContent = '\uD83D\uDCC2 Categoria L\u00EDder';
+        if (txtProdutoTop) txtProdutoTop.textContent = 'Mais vendido (Qtd)';
+        if (txtCategoriaTop) txtCategoriaTop.textContent = 'Maior faturamento';
+    } else {
+        if (labelProduto) labelProduto.textContent = '\uD83C\uDF4E Produto Estrela';
+        if (labelCategoria) labelCategoria.textContent = '\uD83D\uDCC2 Categoria L\u00EDder';
+        if (txtProdutoTop) txtProdutoTop.textContent = 'Mais vendido (Qtd)';
+        if (txtCategoriaTop) txtCategoriaTop.textContent = 'Maior faturamento';
+    }
+}
+
+/**
+ * Carrega o select de Atendente/Profissional do dashboard com isolamento correto de tenant.
+ * - Módulo Agenda: busca em `profissionais` (com filtro empresa_id)
+ * - Módulo Produtos/Loja: busca em `atendentes` (com filtro empresa_id)
+ * - Módulo Misto: carrega ambos e faz merge
+ */
+async function carregarAtendentes() {
+    const tenantId = getTenantId();
+    const ctx = getDashboardContext();
+    const select = document.getElementById('filtroAtendente');
+    if (!select) return;
+
+    let nomes = [];
+
+    try {
+        if (ctx === 'agenda') {
+            // Agenda: usa profissionais
+            const { data, error } = await sb
+                .from('profissionais')
+                .select('nome')
+                .eq('empresa_id', tenantId)
+                .eq('ativo', true)
+                .order('nome');
+            if (error) throw error;
+            nomes = (data || []).map(p => p.nome);
+        } else if (ctx === 'misto') {
+            // Misto: merge de atendentes + profissionais
+            const [resAt, resProf] = await Promise.all([
+                sb.from('atendentes').select('nome').eq('empresa_id', tenantId).order('nome'),
+                sb.from('profissionais').select('nome').eq('empresa_id', tenantId).eq('ativo', true).order('nome')
+            ]);
+            const nomesAt = (resAt.data || []).map(a => a.nome);
+            const nomesProf = (resProf.data || []).map(p => p.nome);
+            // Merge sem duplicatas
+            nomes = [...new Set([...nomesAt, ...nomesProf])].sort();
+        } else {
+            // Produtos ou Loja: usa atendentes
+            const { data, error } = await sb
+                .from('atendentes')
+                .select('nome')
+                .eq('empresa_id', tenantId)
+                .order('nome');
+            if (error) throw error;
+            nomes = (data || []).map(a => a.nome);
+        }
+    } catch (err) {
+        console.error('[Dashboard] Erro ao carregar atendentes/profissionais:', err);
+        return;
+    }
+
+    const firstOptionText = select.querySelector('option[value=""]')?.textContent || 'Todos';
+    select.innerHTML = `<option value="">${firstOptionText}</option>`;
+    nomes.forEach(nome => {
+        const opt = document.createElement('option');
+        opt.value = nome;
+        opt.textContent = nome;
+        select.appendChild(opt);
+    });
+
+    // Garante que os labels estejam atualizados
+    atualizarLabelAtendente();
+}
+
+async function carregarDashboard() {
+    try {
+        const tenantId = getTenantId();
+        const ctx = getDashboardContext();
+        console.log('[Dashboard] Carregando dados para tenant:', tenantId, '| Contexto:', ctx);
+
+        let dataOrders = [];
+        let dataAgendamentos = [];
+
+        // 1. Carrega Pedidos (Produtos/Loja) — apenas se o módulo for relevante
+        if (ctx === 'produtos' || ctx === 'loja' || ctx === 'misto') {
+            const { data, error } = await sb
+                .from('orders')
+                .select('*, order_items(*)')
+                .eq('empresa_id', tenantId)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('[Dashboard] Erro ao carregar orders:', error);
+            } else {
+                dataOrders = data || [];
+            }
+        }
+
+        // 2. Carrega Agendamentos — apenas se o módulo Agenda estiver ativo
+        if (ctx === 'agenda' || ctx === 'misto') {
+            const { data, error } = await sb
+                .from('agendamentos')
+                .select('*, profissional:profissionais(nome), servico:servicos(nome, preco)')
+                .eq('empresa_id', tenantId);
+
+            if (error) {
+                console.error('[Dashboard] Erro ao carregar agendamentos:', error);
+            } else {
+                dataAgendamentos = data || [];
+            }
+        }
+
+        console.log(`[Dashboard] Pedidos: ${dataOrders.length}, Agendamentos: ${dataAgendamentos.length}`);
+
+        // 3. Mapeia Agendamentos para o formato de Pedidos
+        const agendamentosMapeados = dataAgendamentos.map(a => {
+            // Fallback para data: usa data_hora_inicio se created_at não existir
+            const dataVenda = a.created_at || a.data_hora_inicio || new Date().toISOString();
+
+            return {
+                id: a.id,
+                created_at: dataVenda,
+                total: a.servico?.preco || 0,
+                customer_name: a.cliente_nome,
+                customer_phone: a.cliente_telefone,
+                status: a.status,
+                atendente_nome: a.profissional?.nome || '\u2014',
+                is_agendamento: true,
+                order_items: [{
+                    product_name: a.servico?.nome || 'Servi\u00E7o',
+                    quantity: 1,
+                    unit_price: a.servico?.preco || 0,
+                    is_service: true
+                }]
+            };
+        });
+
+        // 4. Combina apenas as fontes relevantes e ordena por data decrescente
+        pedidos = [...dataOrders, ...agendamentosMapeados].sort((a, b) =>
+            new Date(b.created_at) - new Date(a.created_at)
+        );
+
+        setModoDashboard(currentModoDashboard);
+    } catch (err) {
+        console.error('[Dashboard] Erro cr\u00EDtico:', err);
+    }
+}
+
+// Alterna entre Visão Geral, Ontem (Op) e Hoje (Op)
+window.setModoDashboard = (modo) => {
+    currentModoDashboard = modo;
+    
+    const btnGeral = document.getElementById('btnModoGeral');
+    const btnOntem = document.getElementById('btnModoOntemOp');
+    const btnHoje = document.getElementById('btnModoHojeOp');
+
+    if (btnGeral) btnGeral.classList.toggle('active', modo === 'geral');
+    if (btnOntem) btnOntem.classList.toggle('active', modo === 'ontem-op');
+    if (btnHoje) btnHoje.classList.toggle('active', modo === 'hoje-op');
+    
+    const infoBanner = document.getElementById('infoPeriodoOperacional');
+    if (infoBanner) {
+        if (modo === 'hoje-op' || modo === 'ontem-op') {
+            infoBanner.style.display = 'block';
+            const referenceDate = new Date();
+            if (modo === 'ontem-op') referenceDate.setDate(referenceDate.getDate() - 1);
+            
+            const period = getOperationalPeriod(referenceDate, openingTime, closingTime);
+            const txtPeriodo = document.getElementById('txtPeriodoOperacional');
+            if (txtPeriodo) {
+                txtPeriodo.textContent = 
+                    `Período Operacional (${modo === 'hoje-op' ? 'Hoje' : 'Ontem'}): ${period.start.toLocaleString('pt-BR')} até ${period.end.toLocaleString('pt-BR')}`;
+            }
+        } else {
+            infoBanner.style.display = 'none';
+            // Se for Visão Geral, limpa as datas manuais para mostrar TUDO por padrão
+            const fDataInicio = document.getElementById('filtroDataInicio');
+            const fDataFim = document.getElementById('filtroDataFim');
+            if (fDataInicio) fDataInicio.value = '';
+            if (fDataFim) fDataFim.value = '';
+            filtrosPedidos.dataInicio = '';
+            filtrosPedidos.dataFim = '';
+        }
+    }
+
+    atualizarMétricasDashboard();
+};
+
+function getOperationalPeriod(date, opening, closing) {
+    const start = new Date(date);
+    const [hOpen, mOpen] = opening.split(':').map(Number);
+    start.setHours(hOpen, mOpen, 0, 0);
+
+    const end = new Date(start);
+    const [hClose, mClose] = closing.split(':').map(Number);
+    
+    if (hClose < hOpen) {
+        // Atravessa a madrugada
+        end.setDate(end.getDate() + 1);
+    }
+    end.setHours(hClose, mClose, 0, 0);
+
+    // Se a hora atual for ANTES da abertura, talvez estejamos no "final" do dia operacional anterior
+    // Ex: Abertura 18:00, agora são 01:00. O dia operacional começou ontem às 18:00.
+    if (date < start && hClose < hOpen) {
+        start.setDate(start.getDate() - 1);
+        end.setDate(end.getDate() - 1);
+    }
+
+    return { start, end };
+}
+
+function getPedidosFiltrados() {
+    return pedidos.filter(p => {
+        const criado = new Date(p.created_at);
+
+        // Se estiver em modo operacional, a tabela também segue o período operacional
+        if (currentModoDashboard === 'hoje-op' || currentModoDashboard === 'ontem-op') {
+            const referenceDate = new Date();
+            if (currentModoDashboard === 'ontem-op') referenceDate.setDate(referenceDate.getDate() - 1);
+            const period = getOperationalPeriod(referenceDate, openingTime, closingTime);
+            if (criado < period.start || criado > period.end) return false;
+        } else {
+            // Modo Geral: Usa os filtros de data manuais
+            if (filtrosPedidos.dataInicio) {
+                const inicio = new Date(filtrosPedidos.dataInicio + 'T00:00:00');
+                if (criado < inicio) return false;
+            }
+            if (filtrosPedidos.dataFim) {
+                const fim = new Date(filtrosPedidos.dataFim + 'T23:59:59');
+                if (criado > fim) return false;
+            }
+        }
+        if (filtrosPedidos.cliente) {
+            const query = filtrosPedidos.cliente.toLowerCase();
+            const nome = (p.customer_name || '').toLowerCase();
+            const celular = (p.customer_phone || '').replace(/\D/g, '');
+            const queryLimpa = query.replace(/\D/g, '');
+
+            const matchNome = nome.includes(query);
+            const matchCelular = queryLimpa && celular.includes(queryLimpa);
+
+            if (!matchNome && !matchCelular) return false;
+        }
+        if (filtrosPedidos.atendente) {
+            if (p.atendente_nome !== filtrosPedidos.atendente) return false;
+        }
+        if (filtrosPedidos.valorMin !== '' && filtrosPedidos.valorMin !== null) {
+            if (parseFloat(p.total) < parseFloat(filtrosPedidos.valorMin)) return false;
+        }
+        if (filtrosPedidos.valorMax !== '' && filtrosPedidos.valorMax !== null) {
+            if (parseFloat(p.total) > parseFloat(filtrosPedidos.valorMax)) return false;
+        }
+        if (filtrosPedidos.status) {
+            if (p.status !== filtrosPedidos.status) return false;
+        }
+        return true;
+    });
+}
+
+function atualizarMétricasDashboard() {
+    const filtrados = getPedidosFiltrados();
+    const concluidos = filtrados.filter(p => p.status === 'concluido' || p.status === 'finalizado');
+
+    let totalFaturado = 0;
+    let totalItens = 0;
+
+    concluidos.forEach(p => {
+        totalFaturado += parseFloat(p.total || 0);
+        if (p.order_items) {
+            p.order_items.forEach(item => {
+                totalItens += parseInt(item.quantity || 0);
+            });
+        }
+    });
+
+    const avgTicket = concluidos.length > 0 ? (totalFaturado / concluidos.length) : 0;
+
+    document.getElementById('dashTotalValue').innerText = "R$ " + formatNumber(totalFaturado);
+    document.getElementById('dashTotalOrders').innerText = concluidos.length;
+    document.getElementById('dashTotalItems').innerText = totalItens;
+    document.getElementById('dashAvgTicket').innerText = "R$ " + formatNumber(avgTicket);
+
+    renderPedidosFiltrados(filtrados);
+    atualizarGraficoMetricas(filtrados);
+}
+
+function renderPedidosFiltrados(filtrados = null) {
+    const tbody = document.getElementById('pedidosBody');
+    const contador = document.getElementById('filtroContador');
+    if (!tbody) return;
+
+    if (!filtrados) filtrados = getPedidosFiltrados();
+
+    const total = filtrados.length;
+    if (contador) {
+        contador.textContent = total === pedidos.length
+            ? `(${total} pedidos)`
+            : `(${total} de ${pedidos.length} pedidos)`;
+    }
+
+    if (filtrados.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhum pedido encontrado com os filtros selecionados.</td></tr>';
+        return;
+    }
+
+
+    tbody.innerHTML = filtrados.map(p => {
+        const d = new Date(p.created_at);
+        const dataStr = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        const horaStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        
+        const isAgendamento = p.is_agendamento === true;
+        const qtdItens = isAgendamento ? 1 : (p.order_items ? p.order_items.reduce((acc, curr) => acc + curr.quantity, 0) : 0);
+        const itensDesc = isAgendamento ? (p.order_items[0]?.product_name || 'Serviço') : `${qtdItens} un.`;
+
+        const isPendente = p.status === 'pendente';
+        const isPago = p.payment_status === 'pago';
+        let badgeClass = 'badge-inactive';
+        if (p.status === 'concluido' || p.status === 'finalizado') badgeClass = 'badge-active';
+        if (p.status === 'cancelado') badgeClass = 'badge-danger';
+        
+        const statusLabel = (p.status === 'concluido' || p.status === 'finalizado') ? 'Concluído' : p.status?.charAt(0).toUpperCase() + p.status?.slice(1);
+        
+        return `
+                    <tr id="pedido-row-${p.id}">
+                        <td>
+                            <div style="font-weight: 700; font-size: 0.85rem;">${dataStr}</div>
+                            <div style="color: var(--text-muted); font-size: 0.75rem;">${horaStr}</div>
+                        </td>
+                        <td>
+                            <strong>${p.customer_name || 'Desconhecido'}</strong>
+                            ${p.cliente_premium_id ? (() => {
+                                const cp = (typeof listaClientesPremium !== 'undefined') ? listaClientesPremium.find(c => c.id === p.cliente_premium_id) : null;
+                                const tipoLabel = cp ? (cp.tipo === 'funcionario' ? 'Func.' : cp.tipo === 'vip_diretoria' ? 'Diretoria' : 'VIP') : 'VIP';
+                                return `<br><span class="badge" style="background:rgba(229,178,93,0.15); color:var(--primary); font-size:0.7rem; font-weight:700; margin-top:4px; display:inline-block;">👑 ${tipoLabel}</span>`;
+                            })() : ''}
+                        </td>
+                        <td><span class="badge" style="background:rgba(255,255,255,0.05);color:#aaa;font-size:0.75rem;">${p.atendente_nome || '—'}</span></td>
+                        <td><span class="badge ${badgeClass}" style="text-transform:capitalize;">${statusLabel}</span></td>
+                        <td>
+                            ${itensDesc}
+                            ${isAgendamento ? '<br><small style="color:var(--primary); font-size:0.7rem; font-weight:600;">(Agendamento)</small>' : ''}
+                        </td>
+                        <td><strong>${formatCurrency(p.total)}</strong></td>
+                        <td>
+                            <div style="display:flex; gap: 5px; justify-content: flex-end;">
+                                ${isAgendamento ? `
+                                    <button class="btn-sm" onclick="document.getElementById('nav-agenda').click();" style="background:rgba(229,178,93,0.1); color:var(--primary); border:1px solid var(--primary); font-size:0.7rem; padding: 4px 8px; border-radius: 6px;">Ver na Agenda</button>
+                                ` : `
+                                    ${isPendente
+                                        ? `<button class="btn-sm btn-finalizar" onclick="finalizarPedido('${p.id}')">✅ Finalizar</button>`
+                                        : '<span style="font-size:0.8rem;color:var(--text-muted);">—</span>'
+                                    }
+                                    ${isPendente && !isPago
+                                        ? `<button class="btn-sm" style="background:transparent; color:#ff4757; border: 1px solid #ff4757;" onclick="cancelarPedido('${p.id}')">❌ Cancelar</button>`
+                                        : ''
+                                    }
+                                `}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+    }).join('');
+}
+
+let adminRealtimeChannel = null;
+
+function setupAdminRealtime() {
+    if (adminRealtimeChannel) return;
+
+    adminRealtimeChannel = sb.channel('admin-orders-realtime')
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'orders' 
+        }, payload => {
+            carregarDashboard(); // Recarrega tudo para garantir sincronia total (métricas + lista)
+            if (typeof carregarClientesPremium === 'function' && isModuloAtivo('clientes_premium')) {
+                carregarClientesPremium(); // Atualiza valor consumido em tempo real
+            }
+        })
+        .on('postgres_changes', { 
+            event: '*', 
+            schema: 'public', 
+            table: 'agendamentos' 
+        }, payload => {
+            carregarDashboard(); // Recarrega quando um agendamento mudar
+        })
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log('[Realtime] Pedidos/Agendamentos conectado.');
+            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                console.warn('[Realtime] Canal de pedidos indisponível (pode ser proxy/firewall). O painel continua funcionando sem atualizações em tempo real.');
+                if (adminRealtimeChannel) {
+                    sb.removeChannel(adminRealtimeChannel);
+                    adminRealtimeChannel = null;
+                }
+            }
+        });
+
+    // Realtime para mudanças na própria empresa (ex: módulos, tema)
+    sb.channel('admin-company-realtime')
+        .on('postgres_changes', { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'empresas',
+            filter: `id=eq.${getTenantId()}`
+        }, payload => {
+            console.log('[Realtime] Dados da empresa atualizados:', payload.new);
+            if (payload.new.modulos) {
+                console.log('[Realtime] Novos módulos recebidos:', payload.new.modulos);
+                window.TENANT.modulos = payload.new.modulos;
+                aplicarFiltrosDeModulos();
+                renderProdutos(); // Garante que colunas de estoque sejam atualizadas
+            }
+        })
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                console.log('[Realtime] Canal da empresa conectado.');
+            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                console.warn('[Realtime] Canal da empresa indisponível. Módulos e tema não serão atualizados em tempo real.');
+            }
+        });
+}
+
+async function carregarProdutos() {
+    const { data, error } = await sb
+        .from('products')
+        .select('*, categories(name)')
+        .eq('empresa_id', getTenantId()) // ← Multi-Tenant
+        .order('archived', { ascending: true })
+        .order('active', { ascending: false })
+        .order('sort_order', { ascending: true });
+    if (error) {
+        showToast('Erro ao carregar produtos', 'error');
+        return;
+    }
+    produtos = data || [];
+
+    // Inativar automaticamente itens com estoque 0
+    const itensParaInativar = produtos.filter(p => p.active && p.stock <= 0 && !p.archived);
+    if (itensParaInativar.length > 0) {
+        const ids = itensParaInativar.map(p => p.id);
+        const { error: updErr } = await sb.from('products').update({ active: false }).in('id', ids);
+        if (!updErr) {
+            // Update local state and re-render
+            produtos.forEach(p => { if (ids.includes(p.id)) p.active = false; });
+            showToast(`${itensParaInativar.length} item(ns) esgotados foram inativados.`, 'success');
+        }
+    }
+
+    atualizarAlertaEstoque();
+    renderProdutos();
+    renderStats(); // Update stats summary
+}
+
+async function carregarCategorias() {
+    const { data, error } = await sb.from('categories').select('*')
+        .eq('empresa_id', getTenantId()) // ← Multi-Tenant
+        .order('order_position');
+    if (error) { showToast('Erro ao carregar categorias', 'error'); return; }
+    categorias = data || [];
+    renderCategorias();
+    atualizarSelectCategorias();
+}
+
+async function carregarCupons() {
+    const { data, error } = await sb.from('coupons').select('*')
+        .eq('empresa_id', getTenantId()) // ← Multi-Tenant
+        .order('created_at', { ascending: false });
+    if (error) { showToast('Erro ao carregar cupons', 'error'); return; }
+    cupons = data || [];
+    renderCupons();
+}
+
+function renderStats() {
+    const ativos = produtos.filter(p => p.active && !p.archived).length;
+    const totalProdutos = produtos.filter(p => !p.archived).length;
+    const esgotados = produtos.filter(p => p.stock <= 0 && !p.archived).length;
+    const totalCats = categorias.length;
+
+    document.getElementById('statsRow').innerHTML = `
+                <div class="stat-card"><div class="stat-label">Total de Produtos</div><div class="stat-value">${totalProdutos}</div></div>
+                <div class="stat-card"><div class="stat-label">Ativos</div><div class="stat-value" style="color:var(--success)">${ativos}</div></div>
+                <div class="stat-card"><div class="stat-label">Esgotados</div><div class="stat-value" style="color:var(--danger)">${esgotados}</div></div>
+                <div class="stat-card"><div class="stat-label">Categorias</div><div class="stat-value">${totalCats}</div></div>
+            `;
+}
+
+function atualizarAlertaEstoque() {
+    const panel = document.getElementById('stockAlertPanel');
+    const list = document.getElementById('stockAlertList');
+    // Filtra: não arquivado AND estoque <= alerta AND estoque > 0 (zerados somem daqui pois já ficam inativos)
+    const baixoEstoque = produtos.filter(p => !p.archived && p.stock <= (p.min_stock_alert || 0) && p.stock > 0);
+
+    if (baixoEstoque.length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+    list.innerHTML = baixoEstoque.map(p => `
+                <li>
+                    <span>${p.name}</span>
+                    <span>${p.stock} uni. (Mín: ${p.min_stock_alert || 0})</span>
+                </li>
+            `).join('');
+}
+
+// --- Render Products ---
+function renderProdutos() {
+    const tbody = document.getElementById('produtosBody');
+    if (!tbody) return;
+    if (produtos.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhum produto encontrado.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = produtos.map((p, i) => {
+        const isEsgotado = p.stock <= 0;
+        const canDrag = !p.archived && p.active;
+        const handleContent = canDrag ? '<span class="drag-handle" style="cursor:grab;">☰</span>' : '';
+        const rowStyle = canDrag ? '' : 'cursor: default;';
+        let stockColor = isEsgotado ? '#FF4757' : (p.stock <= (p.min_stock_alert || 0) ? '#FAAD14' : 'inherit');
+
+        let rowClass = '';
+        if (p.archived) {
+            rowClass = 'row-archived';
+        } else if (!p.active) {
+            rowClass = 'row-inactive';
+        }
+
+        const toggleHTML = p.archived
+            ? `<span class="badge" style="background:rgba(255,255,255,0.1); color:#aaa;">Arquivado</span>`
+            : `
+                        <label class="switch">
+                            <input type="checkbox" ${p.active ? 'checked' : ''} onchange="toggleProdutoAtivo('${p.id}', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    `;
+
+        const actionButton = p.archived
+            ? `<button class="btn-sm btn-unarchive" onclick="desarquivarProduto('${p.id}')">Desarquivar</button>`
+            : `<button class="btn-sm btn-archive" onclick="arquivarProduto('${p.id}')">Arquivar</button>`;
+
+        let primeiraImagem = 'Logo.png';
+        if (p.image_url) {
+            if (Array.isArray(p.image_url) && p.image_url.length > 0) {
+                primeiraImagem = p.image_url[0];
+            } else if (typeof p.image_url === 'string' && p.image_url.startsWith('[')) {
+                try {
+                    const parsed = JSON.parse(p.image_url);
+                    if (Array.isArray(parsed) && parsed.length > 0) primeiraImagem = parsed[0];
+                } catch(e) {
+                    primeiraImagem = p.image_url;
+                }
+            } else if (typeof p.image_url === 'string' && p.image_url.trim() !== '') {
+                primeiraImagem = p.image_url;
+            }
+        }
+
+        return `
+                <tr class="${rowClass}" data-id="${p.id}" style="${rowStyle}">
+                    <td style="color: var(--text-muted); text-align: center; font-size: 1.2rem;">${handleContent}</td>
+                    <td><img src="${primeiraImagem}" alt="Img" style="width:40px;height:40px;object-fit:cover;border-radius:6px;"></td>
+                    <td onclick="editarProduto('${p.id}')" style="cursor:pointer;" title="Clique para editar">
+                        <div class="product-name-container">
+                            <strong class="clickable-row-name">${p.name}</strong>
+                            <div class="mobile-price-hint" style="display:none; font-size:0.75rem; color:var(--primary); font-weight:700; margin-top:2px;">
+                                ${formatCurrency(p.price)}
+                            </div>
+                            ${p.promo_price > 0 ? '<div class="badge-promo-container"><span class="badge badge-promo">PROMO</span></div>' : ''}
+                        </div>
+                    </td>
+                    <td>${p.categories?.name || '-'}</td>
+                    <td onclick="editarProduto('${p.id}')" style="cursor:pointer;" title="Clique para editar">${formatCurrency(p.price)}</td>
+                    <td class="col-estoque" onclick="editarProduto('${p.id}')" style="cursor:pointer; color:${stockColor}; font-weight: ${stockColor !== 'inherit' ? '700' : 'normal'}; ${isModuloAtivo('produtos_estoque') ? '' : 'display:none;'}" title="Clique para ajustar estoque">${p.stock}</td>
+                    <td>${toggleHTML}</td>
+                    <td>
+                        <div class="actions-cell">
+                            <button class="btn-sm btn-edit" onclick="editarProduto('${p.id}')">Editar</button>
+                            ${actionButton}
+                        </div>
+                    </td>
+                </tr>
+            `}).join('');
+    
+    initSortableProdutos();
+}
+
+window.toggleProdutoAtivo = async (id, isActive) => {
+    const { error } = await sb.from('products').update({ active: isActive }).eq('id', id);
+    if (error) {
+        showToast('Erro ao atualizar status', 'error');
+        // Revert visual change
+        carregarProdutos();
+    } else {
+        showToast(isActive ? 'Produto ativado!' : 'Produto inativado!', 'success');
+        carregarProdutos(); // Relocates product to correct group instantly
+    }
+};
+
+function initSortableProdutos() {
+    const el = document.getElementById('produtosBody');
+    if (!el) return;
+
+    if (el.sortable) el.sortable.destroy();
+    
+    el.sortable = new Sortable(el, {
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'sortable-ghost',
+        dragClass: 'dragging',
+        chosenClass: 'dragging',
+        onStart: () => el.classList.add('is-dragging'),
+        onEnd: async (evt) => {
+            el.classList.remove('is-dragging');
+            if (evt.oldIndex === evt.newIndex) return;
+
+            // Reordenar o array local 'produtos' baseado na nova ordem do DOM
+            const newOrderIds = Array.from(el.querySelectorAll('tr')).map(tr => tr.dataset.id);
+            const reordered = newOrderIds.map(id => produtos.find(p => p.id === id));
+            produtos = reordered;
+
+            await salvarOrdemProdutosBanco();
+        }
+    });
+}
+
+async function salvarOrdemProdutosBanco() {
+    // Apenas produtos ativos e não arquivados devem ser reordenados (conforme regra de negócio)
+    // Mas aqui salvamos a ordem atual de todos para simplificar a persistência
+    const updates = produtos.map((p, i) => 
+        sb.from('products').update({ sort_order: i }).eq('id', p.id)
+    );
+
+    const results = await Promise.all(updates);
+    if (results.some(r => r.error)) {
+        showToast('Erro ao salvar nova ordem dos produtos.', 'error');
+    } else {
+        showToast('Ordem atualizada!', 'success');
+    }
+}
+
+// --- Render Categories ---
+function renderCategorias() {
+    const tbody = document.getElementById('categoriasBody');
+    if (categorias.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhuma categoria cadastrada.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = categorias.map(c => `
+                <tr>
+                    <td onclick="editarCategoria('${c.id}')" style="cursor:pointer;" title="Clique para editar"><strong>${c.name}</strong></td>
+                    <td><code>${c.slug}</code></td>
+                    <td>${c.order_position}</td>
+                    <td>
+                        <div class="actions-cell">
+                            <button class="btn-sm btn-edit" onclick="editarCategoria('${c.id}')">Editar</button>
+                            <button class="btn-sm btn-delete" onclick="excluirCategoria('${c.id}', '${c.name.replace(/'/g, "\\'")}')">Excluir</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+}
+
+// --- Render Coupons ---
+function renderCupons() {
+    const tbody = document.getElementById('cuponsBody');
+    if (cupons.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhum cupom cadastrado.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = cupons.map(c => `
+                <tr>
+                    <td><strong>${c.code}</strong></td>
+                    <td>${c.discount_percent}%</td>
+                    <td style="font-size: 0.85rem; color: var(--text-muted);">
+                        ${c.usage_count || 0} / ${c.usage_limit || '∞'}
+                    </td>
+                    <td><span class="badge ${c.active ? 'badge-active' : 'badge-inactive'}">${c.active ? 'Ativo' : 'Inativo'}</span></td>
+                    <td>
+                        <div class="actions-cell">
+                            <button class="btn-sm btn-edit" onclick="editarCupom('${c.id}')">Editar</button>
+                            <button class="btn-sm btn-delete" onclick="excluirCupom('${c.id}', '${c.code}')">Excluir</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+}
+
+function atualizarSelectCategorias() {
+    const select = document.getElementById('prodCategoria');
+    select.innerHTML = '<option value="">Selecione...</option>';
+    categorias.forEach(c => {
+        select.innerHTML += `<option value="${c.id}">${c.name}</option>`;
+    });
+}
+
+// =================== PRODUCTS CRUD ===================
+
+async function renderizarGradeGaleria(gridId, isCompleto = false) {
+    const grid = document.getElementById(gridId);
+    const inputSel = document.getElementById('prodImagemSelecionada');
+    const preSelecionada = inputSel.value;
+
+    const filtroId = isCompleto ? 'filtroGaleriaCompleta' : 'filtroGaleria';
+    const filtroEl = document.getElementById(filtroId);
+    const termoBusca = filtroEl ? filtroEl.value.toLowerCase() : '';
+
+    let files = imagensGaleria;
+    if (termoBusca) {
+        files = files.filter(f => f.name.toLowerCase().includes(termoBusca));
+    }
+
+    if (files.length === 0) {
+        grid.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.9rem;">Nenhuma foto encontrada.</div>';
+        return;
+    }
+
+    let html = '';
+    const isMobile = window.innerWidth < 600;
+    let limit = isCompleto ? files.length : (isMobile ? 1 : 7);
+    let filesToShow = files.slice(0, limit);
+
+    filesToShow.forEach(file => {
+        const url = file.url; // Agora usamos a URL direta vinda do banco (ou do mapeamento)
+        const isSelected = (preSelecionada === url) ? 'selected' : '';
+
+        html += `
+            <div class="gallery-item ${isSelected}" onclick="selecionarImagemGaleria('${url}', this, '${isCompleto}')" title="${file.name}">
+                <img src="${url}" alt="${file.name}" loading="lazy">
+            </div>
+        `;
+    });
+
+    if (!isCompleto && files.length > 7) {
+        // COMENTADO: Galeria completa requer autenticação privada do Cloudinary
+        // html += `
+        //             <div class="gallery-item" style="display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(229, 178, 93, 0.1);color:var(--primary);font-size:0.8rem;text-align:center;font-weight:800;border:1px dashed var(--primary); cursor:pointer;" onclick="abrirModalGaleriaCompleta()">
+        //                 <span style="font-size:1.2rem;">+${files.length - 7}</span>
+        //                 Ver todas
+        //             </div>
+        //         `;
+    }
+    grid.innerHTML = html;
+}
+
+async function carregarGaleria(preSelecionada = '') {
+    const inputSel = document.getElementById('prodImagemSelecionada');
+    inputSel.value = preSelecionada;
+
+    const grid = document.getElementById('imageGalleryGrid');
+    if (!grid) return;
+
+    // --- NOVO: Buscar da tabela galeria_imagens ---
+    const tenantId = getTenantId();
+    console.log('Carregando galeria para empresa:', tenantId);
+    console.log('getTenantId resultado:', tenantId);
+    
+    try {
+        // 1. Buscar de galeria_imagens (novo sistema)
+        const { data: galeriaData, error: galeriaError } = await sb
+            .from('galeria_imagens')
+            .select('*')
+            .eq('empresa_id', tenantId)
+            .eq('tipo', 'produto')
+            .order('criado_em', { ascending: false });
+
+        if (galeriaError) {
+            console.error('Erro ao carregar galeria:', galeriaError);
+            console.error('Erro completo:', JSON.stringify(galeriaError));
+            return;
+        }
+
+        console.log('Imagens retornadas de galeria_imagens:', galeriaData);
+        console.log('Total de imagens em galeria_imagens:', galeriaData ? galeriaData.length : 0);
+
+        // 2. FALLBACK: Se não há na galeria_imagens, buscar de loja_produtos (compatibilidade com imagens antigas)
+        let todasAsImagens = (galeriaData || []).map(item => ({
+            url: item.url,
+            name: 'Imagem ' + new Date(item.criado_em).toLocaleDateString(),
+            fonte: 'galeria'
+        }));
+
+        if (todasAsImagens.length === 0) {
+            console.log('Nenhuma imagem em galeria_imagens, buscando em loja_produtos...');
+            const { data: produtosData, error: produtosError } = await sb
+                .from('loja_produtos')
+                .select('id, imagem_url, criado_em')
+                .eq('empresa_id', tenantId)
+                .not('imagem_url', 'is', null)
+                .order('criado_em', { ascending: false });
+
+            if (!produtosError && produtosData) {
+                console.log('Imagens encontradas em loja_produtos:', produtosData);
+                todasAsImagens = produtosData.map(item => ({
+                    url: item.imagem_url,
+                    name: 'Imagem ' + new Date(item.criado_em).toLocaleDateString(),
+                    fonte: 'produtos'
+                }));
+            }
+        }
+
+        console.log('imagensGaleria após mapeamento:', todasAsImagens);
+        imagensGaleria = todasAsImagens;
+    } catch (err) {
+        console.error('Exceção ao carregar galeria:', err);
+        return;
+    }
+
+    if (imagensGaleria.length === 0) {
+        grid.innerHTML = `
+            <div style="padding:2.5rem 1.5rem; color:var(--text-muted); text-align:center; border: 2px dashed rgba(229,178,93,0.2); border-radius: 16px; background: rgba(229,178,93,0.02); grid-column: 1 / -1;">
+                <div style="font-size: 2.5rem; margin-bottom: 1rem; opacity: 0.5;">📸</div>
+                <h4 style="color:var(--text-main); margin-bottom: 0.5rem;">Sua galeria está vazia</h4>
+                <p style="font-size:0.85rem; line-height:1.5;">Clique no botão <strong>"Subir Foto"</strong> acima para inserir sua primeira imagem.</p>
+            </div>
+        `;
+    } else {
+        renderizarGradeGaleria('imageGalleryGrid', false);
+    }
+    
+    // COMENTADO: Galeria completa desativada
+    // Se a galeria completa estiver aberta, atualiza ela também
+    // const modalCompleto = document.getElementById('modalGaleriaCompleta');
+    // if (modalCompleto && modalCompleto.classList.contains('active')) {
+    //     renderizarGradeGaleria('imageGalleryGridCompleta', true);
+    // }
+}
+
+const elFiltroGaleria = document.getElementById('filtroGaleria');
+if (elFiltroGaleria) elFiltroGaleria.oninput = () => renderizarGradeGaleria('imageGalleryGrid', false);
+
+// COMENTADO: Filtro de galeria completa desativado
+// const elFiltroGaleriaCompleta = document.getElementById('filtroGaleriaCompleta');
+// if (elFiltroGaleriaCompleta) elFiltroGaleriaCompleta.oninput = () => renderizarGradeGaleria('imageGalleryGridCompleta', true);
+
+// COMENTADO: Função de galeria completa desativada
+// Para implementar: use API privada do Cloudinary ou armazene imagens no Supabase
+// window.abrirModalGaleriaCompleta = abrirModalGaleriaCompleta;
+// async function abrirModalGaleriaCompleta() {
+//     document.getElementById('filtroGaleriaCompleta').value = '';
+//     try {
+//         await carregarGaleria('');
+//         console.log('Imagens carregadas:', imagensGaleria.length);
+//     } catch (err) {
+//         console.error('Erro ao carregar galeria:', err);
+//     }
+//     await renderizarGradeGaleria('imageGalleryGridCompleta', true);
+//     abrirModal('modalGaleriaCompleta');
+// }
+
+window.selecionarImagemGaleria = (url, element, isCompletoStr) => {
+    const isCompleto = isCompletoStr === 'true';
+    
+    if (currentProductImages.length >= 5) {
+        showToast('Limite de 5 imagens atingido.', 'warning');
+        return;
+    }
+
+    if (currentProductImages.includes(url)) {
+        showToast('Esta imagem já foi adicionada.', 'info');
+        return;
+    }
+
+    currentProductImages.push(url);
+    renderizarMiniaturasProduto();
+    showToast('Imagem adicionada da galeria!', 'success');
+
+    // COMENTADO: Galeria completa desativada
+    // if (isCompleto) {
+    //     fecharModal('modalGaleriaCompleta');
+    // } else {
+    element.classList.add('selected');
+    // }
+};
+
+const elBtnUploadNovaImagem = document.getElementById('btnUploadNovaImagem');
+if (elBtnUploadNovaImagem) {
+    elBtnUploadNovaImagem.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        await handleImageUpload(file);
+        e.target.value = '';
+    };
+}
+
+// --- CONFIGURAÇÃO CLOUDINARY --- (Movido para o topo)
+
+
+window.handleCloudinaryUpload = handleCloudinaryUpload;
+async function handleCloudinaryUpload(file, subfolder = 'produtos') {
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+        formData.append('folder', `loja_${getTenantId()}/${subfolder}`);
+
+        const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error?.message || 'Erro no upload');
+        }
+
+        const data = await response.json();
+        return data.secure_url;
+
+    } catch (error) {
+        console.error('Erro Cloudinary:', error);
+        window.showToast?.('Erro ao subir imagem: ' + error.message, 'error');
+        return null;
+    }
+}
+
+async function handleImageUpload(file) {
+    if (currentProductImages.length >= 5) {
+        showToast('Limite de 5 imagens atingido.', 'warning');
+        return null;
+    }
+
+    showToast('Enviando imagem para nuvem...', 'success');
+    const imageUrl = await window.handleCloudinaryUpload(file, 'produtos');
+    
+    if (imageUrl) {
+        // --- Salvar na tabela de galeria para persistência ---
+        const tenantId = getTenantId();
+        await sb.from('galeria_imagens').insert({
+            empresa_id: tenantId,
+            url: imageUrl,
+            tipo: 'produto'
+        });
+
+        // Adicionar ao array local
+        currentProductImages.push(imageUrl);
+        renderizarMiniaturasProduto();
+        
+        showToast('Imagem adicionada!', 'success');
+        await carregarGaleria(imageUrl);
+        
+        return imageUrl;
+    }
+    return null;
+}
+
+function renderizarMiniaturasProduto() {
+    const container = document.getElementById('containerImagensProduto');
+    if (!container) return;
+    
+    container.innerHTML = currentProductImages.map((url, index) => `
+        <div class="product-image-thumb">
+            <img src="${url}" alt="Imagem ${index + 1}" crossorigin="anonymous" referrerpolicy="no-referrer-when-downgrade">
+            <button class="btn-remove-img" onclick="removerImagemProduto(${index})">×</button>
+        </div>
+    `).join('');
+    
+    // Atualiza o input legado (pega a primeira imagem para compatibilidade se necessário)
+    document.getElementById('prodImagemSelecionada').value = currentProductImages[0] || '';
+    
+    // Desativar botão se chegar a 5
+    const btn = document.getElementById('btnAdicionarImagem');
+    if (btn) btn.disabled = (currentProductImages.length >= 5);
+}
+
+window.removerImagemProduto = removerImagemProduto;
+function removerImagemProduto(index) {
+    currentProductImages.splice(index, 1);
+    renderizarMiniaturasProduto();
+}
+
+window.abrirModalNovoProduto = abrirModalNovoProduto;
+function abrirModalNovoProduto() {
+    if (!validarAcessoModulo('produtos_gerenciar')) return;
+    document.getElementById('modalProdutoTitle').textContent = 'Novo Produto';
+    document.getElementById('produtoId').value = '';
+    document.getElementById('prodNome').value = '';
+    document.getElementById('prodDesc').value = '';
+    document.getElementById('prodPreco').value = '';
+    document.getElementById('prodPrecoPromo').value = '';
+    setPromoType('val');
+    atualizarPromoPreview();
+    document.getElementById('prodEstoque').value = '0';
+    document.getElementById('groupEstoqueAtual').style.display = 'none';
+    document.getElementById('rowTipoMovimentacao').style.display = 'none';
+    document.getElementById('containerMotivoSaida').style.display = 'none';
+    document.getElementById('labelMovimentacaoEstoque').innerText = 'Estoque Inicial';
+    document.getElementById('prodTipoMovimentacao').value = 'entrada';
+    document.getElementById('prodMotivoSaidaId').value = '';
+    document.getElementById('prodObsSaida').value = '';
+
+    currentProductImages = [];
+    renderizarMiniaturasProduto();
+    carregarGaleria('');
+    abrirModal('modalProduto');
+}
+
+// Listener para mudança de tipo de movimentação
+document.getElementById('prodTipoMovimentacao').onchange = (e) => {
+    const container = document.getElementById('containerMotivoSaida');
+    const label = document.getElementById('labelMovimentacaoEstoque');
+    
+    if (e.target.value === 'saida') {
+        container.style.display = 'block';
+        label.innerText = 'Quantidade de Saída';
+        popularSelectMotivosEstoque();
+    } else {
+        container.style.display = 'none';
+        label.innerText = 'Quantidade de Entrada';
+    }
+};
+
+function popularSelectMotivosEstoque() {
+    const select = document.getElementById('prodMotivoSaidaId');
+    const ativos = motivosEstoque.filter(m => m.active);
+    
+    select.innerHTML = '<option value="">Selecione um motivo...</option>' + 
+        ativos.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+}
+
+window.editarProduto = editarProduto;
+function editarProduto(id) {
+    const p = produtos.find(x => x.id === id);
+    if (!p) return;
+    document.getElementById('modalProdutoTitle').textContent = 'Editar Produto';
+    document.getElementById('produtoId').value = p.id;
+    document.getElementById('prodNome').value = p.name;
+    document.getElementById('prodDesc').value = p.description || '';
+    document.getElementById('prodPreco').value = p.price;
+    document.getElementById('prodEstoque').value = p.stock;
+    document.getElementById('prodEstoqueDisplay').innerText = p.stock;
+    document.getElementById('prodMovimentacaoEstoque').value = '';
+    document.getElementById('prodEstoqueMin').value = p.min_stock_alert;
+    document.getElementById('prodCategoria').value = p.category_id;
+    document.getElementById('prodAtivo').value = String(p.active);
+    document.getElementById('prodImagemSelecionada').value = p.image_url || '';
+    document.getElementById('prodPrecoPromo').value = p.promo_price || '';
+    setPromoType('val'); // Reset para valor ao editar
+    atualizarPromoPreview();
+
+    document.getElementById('groupEstoqueAtual').style.display = 'block';
+    document.getElementById('rowTipoMovimentacao').style.display = 'block';
+    document.getElementById('containerMotivoSaida').style.display = 'none';
+    document.getElementById('labelMovimentacaoEstoque').innerText = 'Adicionar ao Estoque';
+    document.getElementById('prodTipoMovimentacao').value = 'entrada';
+    document.getElementById('prodMotivoSaidaId').value = '';
+    document.getElementById('prodObsSaida').value = '';
+
+    // --- Múltiplas Imagens ---
+    if (Array.isArray(p.image_url)) {
+        currentProductImages = [...p.image_url];
+    } else {
+        currentProductImages = p.image_url ? [p.image_url] : [];
+    }
+    renderizarMiniaturasProduto();
+
+    carregarGaleria(currentProductImages[0] || '');
+    abrirModal('modalProduto');
+};
+
+window.executarSalvarProduto = executarSalvarProduto;
+async function executarSalvarProduto() {
+    if (!validarAcessoModulo('produtos_gerenciar')) {
+        console.warn('[SAVE] Acesso negado ao módulo de produtos.');
+        return;
+    }
+    const btn = document.getElementById('btnSalvarProduto');
+    const id = document.getElementById('produtoId').value;
+    const currentStock = parseInt(document.getElementById('prodEstoque').value) || 0;
+    const stockInput = parseInt(document.getElementById('prodMovimentacaoEstoque').value) || 0;
+    const tipoMov = document.getElementById('prodTipoMovimentacao').value;
+    const motivoId = document.getElementById('prodMotivoSaidaId').value;
+    const obs = document.getElementById('prodObsSaida').value.trim();
+
+    const basePrice = parseFloat(document.getElementById('prodPreco').value) || 0;
+    const promoVal = parseFloat(document.getElementById('prodPrecoPromo').value) || 0;
+    
+    console.log('[SAVE] Iniciando salvamento...', { id, basePrice, promoVal, imgs: currentProductImages.length });
+
+    if (promoVal > 0) {
+        if (window.currentPromoType === 'pct' && promoVal > 100) {
+            showToast('O desconto não pode ser maior que 100%.', 'error');
+            return;
+        }
+        if (window.currentPromoType === 'val' && promoVal >= basePrice) {
+            showToast('O preço promocional deve ser menor que o original.', 'error');
+            return;
+        }
+    }
+
+    const payload = {
+        name:            document.getElementById('prodNome').value.trim(),
+        description:     document.getElementById('prodDesc').value.trim(),
+        price:           parseFloat(document.getElementById('prodPreco').value),
+        min_stock_alert: parseInt(document.getElementById('prodEstoqueMin').value) || 0,
+        category_id:     document.getElementById('prodCategoria').value || null,
+        active:          document.getElementById('prodAtivo').value === 'true',
+        image_url:       currentProductImages,
+        promo_price:     (() => {
+            const val = parseFloat(document.getElementById('prodPrecoPromo').value);
+            if (!val || val <= 0) return null;
+            if (window.currentPromoType === 'pct') {
+                const base = parseFloat(document.getElementById('prodPreco').value) || 0;
+                return base * (1 - val / 100);
+            }
+            return val;
+        })(),
+        updated_at:      new Date().toISOString()
+    };
+
+    if (!payload.name || isNaN(payload.price)) {
+        showToast('Nome e preço são obrigatórios.', 'error');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+
+    let finalStock = currentStock;
+    if (!id) {
+        finalStock = stockInput;
+    } else {
+        finalStock = (tipoMov === 'entrada') ? currentStock + stockInput : currentStock - stockInput;
+    }
+    payload.stock = finalStock;
+
+    let dbError;
+    let savedProductId = id;
+
+    try {
+        if (id) {
+            ({ error: dbError } = await sb.from('products').update(payload).eq('id', id));
+        } else {
+            const tenantId = getTenantId();
+            if (!tenantId) throw new Error('ID da empresa não encontrado.');
+            payload.empresa_id = tenantId;
+            const { data, error } = await sb.from('products').insert(payload).select().single();
+            dbError = error;
+            if (data) savedProductId = data.id;
+        }
+
+        if (dbError) throw dbError;
+
+        // Registrar movimentação
+        if (stockInput > 0 || !id) {
+            await sb.from('stock_movements').insert({
+                product_id: savedProductId,
+                empresa_id: getTenantId(),
+                type: (!id) ? 'entrada' : tipoMov,
+                quantity: stockInput,
+                reason: (!id) ? 'Estoque inicial' : null,
+                reason_id: (id && tipoMov === 'saida') ? motivoId : null,
+                notes: obs || null
+            });
+        }
+
+        showToast(id ? 'Produto atualizado!' : 'Produto criado!', 'success');
+        fecharModal('modalProduto');
+        carregarProdutos();
+        if (typeof renderStats === 'function') renderStats();
+
+    } catch (err) {
+        console.error('[SAVE ERROR]', err);
+        showToast('Erro ao salvar: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = id ? 'Salvar Alterações' : 'Salvar Produto';
+    }
+}
+
+window.arquivarProduto = async (id) => {
+    if (!await customConfirm('Arquivar Produto', 'Deseja arquivar este produto? Ele não aparecerá mais no cardápio nem no sistema.')) return;
+    const { error } = await sb.from('products').update({ archived: true }).eq('id', id);
+    if (error) {
+        showToast('Erro ao arquivar: ' + error.message, 'error');
+    } else {
+        showToast('Produto arquivado!', 'success');
+        carregarProdutos();
+        renderStats();
+    }
+};
+
+window.desarquivarProduto = async (id) => {
+    if (!await customConfirm('Desarquivar Produto', 'Deseja desarquivar este produto? Ele retornará como inativo para que você possa revisá-lo antes de ativar.')) return;
+    // Desarquiva e assegura que continue inativo inicialmente
+    const { error } = await sb.from('products').update({ archived: false, active: false }).eq('id', id);
+    if (error) {
+        showToast('Erro ao desarquivar: ' + error.message, 'error');
+    } else {
+        showToast('Produto desarquivado com sucesso!', 'success');
+        carregarProdutos();
+        renderStats();
+    }
+};
+
+// =================== CATEGORIES CRUD ===================
+
+document.getElementById('btnNovaCategoria').onclick = () => {
+    document.getElementById('modalCategoriaTitle').textContent = 'Nova Categoria';
+    document.getElementById('catId').value = '';
+    document.getElementById('catNome').value = '';
+    document.getElementById('catSlug').value = '';
+    document.getElementById('catOrdem').value = '';
+    abrirModal('modalCategoria');
+};
+
+// Auto-generate slug from name
+document.getElementById('catNome').oninput = () => {
+    if (!document.getElementById('catId').value) {
+        const nome = document.getElementById('catNome').value;
+        document.getElementById('catSlug').value = nome.toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    }
+};
+
+window.editarCategoria = (id) => {
+    const c = categorias.find(x => x.id === id);
+    if (!c) return;
+    document.getElementById('modalCategoriaTitle').textContent = 'Editar Categoria';
+    document.getElementById('catId').value = c.id;
+    document.getElementById('catNome').value = c.name;
+    document.getElementById('catSlug').value = c.slug;
+    document.getElementById('catOrdem').value = c.order_position;
+    abrirModal('modalCategoria');
+};
+
+document.getElementById('btnSalvarCategoria').onclick = async () => {
+    if (!validarAcessoModulo('produtos_categorias')) return;
+    const id = document.getElementById('catId').value;
+    const nome = document.getElementById('catNome').value.trim();
+    const slug = document.getElementById('catSlug').value.trim();
+    const ordem = parseInt(document.getElementById('catOrdem').value) || 0;
+
+    if (!nome || !slug) {
+        showToast('Preencha nome e slug.', 'error');
+        return;
+    }
+
+    const payload = { name: nome, slug: slug, order_position: ordem };
+
+    let error;
+    if (id) {
+        ({ error } = await sb.from('categories').update(payload).eq('id', id));
+    } else {
+        // ← Multi-Tenant: injeta empresa_id no INSERT
+        ({ error } = await sb.from('categories').insert({ ...payload, empresa_id: getTenantId() }));
+    }
+
+    if (error) {
+        showToast('Erro ao salvar categoria: ' + error.message, 'error');
+        return;
+    }
+
+    showToast(id ? 'Categoria atualizada!' : 'Categoria criada!', 'success');
+    fecharModal('modalCategoria');
+    await carregarCategorias();
+    await carregarProdutos();
+    renderStats();
+};
+
+window.excluirCategoria = async (id, nome) => {
+    if (!await customConfirm('Excluir Categoria', `Excluir categoria "${nome}"? Os produtos desta categoria ficarão sem categoria.`)) return;
+    const { error } = await sb.from('categories').delete().eq('id', id);
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return; }
+    showToast('Categoria excluída!', 'success');
+    await carregarCategorias();
+    renderStats();
+};
+
+// =================== COUPONS CRUD ===================
+
+document.getElementById('btnNovoCupom').onclick = () => {
+    if (!validarAcessoModulo('cupons')) return;
+    document.getElementById('modalCupomTitle').textContent = 'Novo Cupom';
+    document.getElementById('cupomId').value = '';
+    document.getElementById('cupomCodigo').value = '';
+    document.getElementById('cupomDesconto').value = '';
+    document.getElementById('cupomLimite').value = '';
+    document.getElementById('cupomAtivo').value = 'true';
+    abrirModal('modalCupom');
+};
+
+window.editarCupom = (id) => {
+    const c = cupons.find(x => x.id === id);
+    if (!c) return;
+    document.getElementById('modalCupomTitle').textContent = 'Editar Cupom';
+    document.getElementById('cupomId').value = c.id;
+    document.getElementById('cupomCodigo').value = c.code;
+    document.getElementById('cupomDesconto').value = c.discount_percent;
+    document.getElementById('cupomLimite').value = c.usage_limit || '';
+    document.getElementById('cupomAtivo').value = String(c.active);
+    abrirModal('modalCupom');
+};
+
+document.getElementById('btnSalvarCupom').onclick = async () => {
+    if (!validarAcessoModulo('cupons')) return;
+    const id = document.getElementById('cupomId').value;
+    const codigo = document.getElementById('cupomCodigo').value.trim().toUpperCase();
+    const desconto = parseFloat(document.getElementById('cupomDesconto').value);
+    const limiteStr = document.getElementById('cupomLimite').value;
+    const limite = limiteStr === '' ? null : parseInt(limiteStr);
+    const ativo = document.getElementById('cupomAtivo').value === 'true';
+
+    if (!codigo || isNaN(desconto) || desconto <= 0 || desconto > 100) {
+        showToast('Preencha código e desconto corretamente (1-100%).', 'error');
+        return;
+    }
+
+    const payload = { 
+        code: codigo, 
+        discount_percent: desconto, 
+        usage_limit: limite,
+        active: ativo 
+    };
+
+    let error;
+    if (id) {
+        ({ error } = await sb.from('coupons').update(payload).eq('id', id));
+    } else {
+        // ← Multi-Tenant: injeta empresa_id no INSERT
+        ({ error } = await sb.from('coupons').insert({ ...payload, empresa_id: getTenantId() }));
+    }
+
+    if (error) {
+        showToast('Erro ao salvar cupom: ' + error.message, 'error');
+        return;
+    }
+
+    showToast(id ? 'Cupom atualizado!' : 'Cupom criado!', 'success');
+    fecharModal('modalCupom');
+    await carregarCupons();
+};
+
+window.excluirCupom = async (id, code) => {
+    if (!await customConfirm('Excluir Cupom', `Excluir cupom "${code}"?`)) return;
+    const { error } = await sb.from('coupons').delete().eq('id', id);
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return; }
+        showToast('Cupom excluído!', 'success');
+    await carregarCupons();
+};
+
+// Enter to login
+document.getElementById('loginSenha').onkeydown = (e) => {
+    if (e.key === 'Enter') document.getElementById('btnLogin').click();
+};
+
+// --- Filtros de Pedidos (Live) ---
+let filterTimeout;
+function aplicarFiltrosPedidosLive() {
+    clearTimeout(filterTimeout);
+    filterTimeout = setTimeout(aplicarFiltrosPedidos, 350);
+}
+
+// Listeners para filtros ao vivo
+document.getElementById('filtroCliente').oninput = aplicarFiltrosPedidosLive;
+document.getElementById('filtroAtendente').onchange = aplicarFiltrosPedidos;
+document.getElementById('filtroDataInicio').onchange = aplicarFiltrosPedidos;
+document.getElementById('filtroDataFim').onchange = aplicarFiltrosPedidos;
+document.getElementById('filtroValorMin').oninput = aplicarFiltrosPedidosLive;
+document.getElementById('filtroValorMax').oninput = aplicarFiltrosPedidosLive;
+document.getElementById('filtroStatus').onchange = aplicarFiltrosPedidos;
+
+function aplicarFiltrosPedidos() {
+    filtrosPedidos = {
+        dataInicio: document.getElementById('filtroDataInicio').value,
+        dataFim: document.getElementById('filtroDataFim').value,
+        cliente: document.getElementById('filtroCliente').value.trim(),
+        atendente: document.getElementById('filtroAtendente').value,
+        valorMin: document.getElementById('filtroValorMin').value,
+        valorMax: document.getElementById('filtroValorMax').value,
+        status: document.getElementById('filtroStatus').value
+    };
+    atualizarMétricasDashboard();
+}
+
+document.getElementById('btnLimparFiltros').onclick = () => {
+    filtrosPedidos = { dataInicio: '', dataFim: '', cliente: '', atendente: '', valorMin: '', valorMax: '', status: '' };
+    document.getElementById('filtroDataInicio').value = '';
+    document.getElementById('filtroDataFim').value = '';
+    document.getElementById('filtroCliente').value = '';
+    document.getElementById('filtroAtendente').value = '';
+    document.getElementById('filtroValorMin').value = '';
+    document.getElementById('filtroValorMax').value = '';
+    document.getElementById('filtroStatus').value = '';
+    atualizarMétricasDashboard();
+};
+
+// --- Finalizar Pedido ---
+window.finalizarPedido = async (id) => {
+    if (!await customConfirm('Concluir Pedido', 'Deseja marcar este pedido como Concluído?')) return;
+    const { error } = await sb.from('orders').update({ status: 'concluido' }).eq('id', id);
+    if (error) {
+        showToast('Erro ao finalizar pedido: ' + error.message, 'error');
+        return;
+    }
+    // Atualiza o pedido na memória
+    const idx = pedidos.findIndex(p => p.id === id);
+    if (idx !== -1) pedidos[idx].status = 'concluido';
+    atualizarMétricasDashboard();
+    showToast('Pedido finalizado com sucesso!', 'success');
+};
+
+// --- Cancelar Pedido ---
+window.cancelarPedido = (id) => {
+    document.getElementById('cancelOrderId').value = id;
+    
+    // popular select
+    const select = document.getElementById('selectCancelReason');
+    select.innerHTML = '<option value="">Selecione um motivo...</option>' + 
+        cancellationReasons.map(r => `<option value="${r}">${r}</option>`).join('');
+
+    abrirModal('modalCancelarPedido');
+};
+
+document.getElementById('btnConfirmarCancelamento').onclick = async () => {
+    const id = document.getElementById('cancelOrderId').value;
+    const reason = document.getElementById('selectCancelReason').value;
+
+    if (!reason) {
+        showToast('Por favor, selecione um motivo para o cancelamento.', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('btnConfirmarCancelamento');
+    btn.disabled = true;
+    btn.innerText = 'Cancelando...';
+
+    const { error } = await sb.from('orders').update({ status: 'cancelado', cancellation_reason: reason }).eq('id', id);
+    if (error) {
+        showToast('Erro ao cancelar pedido: ' + error.message, 'error');
+        btn.disabled = false;
+        btn.innerText = 'Confirmar Cancelamento';
+        return;
+    }
+
+    // Atualiza o pedido na memória
+    const idx = pedidos.findIndex(p => p.id === id);
+    if (idx !== -1) {
+        pedidos[idx].status = 'cancelado';
+        pedidos[idx].cancellation_reason = reason;
+    }
+    atualizarMétricasDashboard();
+    showToast('Pedido cancelado com sucesso!', 'success');
+    fecharModal('modalCancelarPedido');
+    
+    btn.disabled = false;
+    btn.innerText = 'Confirmar Cancelamento';
+};
+
+// =================== CONFIGURAÇÕES ===================
+
+// --- Funções de Configuração ---
+window.toggleUrlInput = (containerId) => {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+};
+
+async function carregarConfiguracoes() {
+    const empresaId = getTenantId();
+    const [settingsRes, zonasRes, empresaRes] = await Promise.all([
+        sb.from('store_settings').select('*').eq('empresa_id', empresaId).single(),
+        sb.from('shipping_zones').select('*').eq('empresa_id', empresaId).order('created_at'),
+        sb.from('empresas').select('nome, tema_cor_primaria, tema_cor_botao, tema_cor_texto').eq('id', empresaId).single()
+    ]);
+
+    if (settingsRes.error && settingsRes.error.code !== 'PGRST116') {
+        showToast('Erro ao carregar configurações', 'error');
+    }
+    if (empresaRes.error) {
+        console.error('Erro ao carregar tema:', empresaRes.error);
+    }
+
+    if (empresaRes.data) {
+        const e = empresaRes.data;
+        _setThemeField('confTemaPrimaria',   'confTemaPrimariaHex',   e.tema_cor_primaria   || '#E5B25D');
+        _setThemeField('confTemaBotao',      'confTemaBotaoHex',      e.tema_cor_botao      || '#E5B25D');
+        _setThemeField('confTemaTexto',      'confTemaTextoHex',      e.tema_cor_texto      || '#ffffff');
+        _setThemeField('confTemaHover',      'confTemaHoverHex',      e.tema_cor_hover      || _darkenHex(e.tema_cor_botao || '#E5B25D', 8));
+        previewTemaEmpresa();
+
+        // Atualizar títulos dinâmicos
+        const nomeEmpresa = e.nome || 'RiverTech';
+        document.title = `Admin | ${nomeEmpresa}`;
+        const headerTitle = document.querySelector('.admin-header h1');
+        if (headerTitle) {
+            headerTitle.innerHTML = `${nomeEmpresa} <span class="admin-header-label">Admin</span>`;
+        }
+        const loginTitle = document.querySelector('.login-card h1');
+        if (loginTitle) {
+            loginTitle.textContent = nomeEmpresa;
+        }
+    }
+
+    if (settingsRes.data) {
+        const d = settingsRes.data;
+        currentSettingsId = d.id;
+
+        if (window.TENANT) {
+            window.TENANT.brand_name = d.brand_name || window.TENANT.brand_name;
+            window.TENANT.brand_subtitle = d.brand_subtitle || window.TENANT.brand_subtitle;
+            window.TENANT.logo_url = d.logo_url || window.TENANT.logo_url;
+        }
+
+        // Dados da Empresa
+        document.getElementById('confNomeLoja').value        = d.store_name || '';
+        document.getElementById('confCep').value             = d.address_zip || '';
+        document.getElementById('confLogradouro').value      = d.address_street || '';
+        document.getElementById('confNumero').value          = d.address_number || '';
+        document.getElementById('confComplemento').value     = d.address_complement || '';
+        document.getElementById('confBairro').value          = d.address_neighborhood || '';
+        document.getElementById('confCidade').value          = d.address_city || '';
+        document.getElementById('confEstado').value          = d.address_state || '';
+        document.getElementById('confReferencia').value      = d.address_reference || '';
+
+        // Personalização Visual
+        // Preenche com o nome da empresa se o nome da marca estiver vazio
+        document.getElementById('confBrandName').value = d.brand_name || window.TENANT.nome || '';
+        document.getElementById('confBrandSubtitle').value = d.brand_subtitle || 'Seu subtítulo aqui';
+        
+        // Horários operacionais
+        const openTime = (d.opening_time || '18:00').slice(0, 5);
+        const closeTime = (d.closing_time || '02:00').slice(0, 5);
+        
+        document.getElementById('confOpeningTime').value = openTime;
+        document.getElementById('confClosingTime').value = closeTime;
+        openingTime = openTime;
+        closingTime = closeTime;
+        document.getElementById('confBannerUrl').value       = d.banner_url || '';
+        document.getElementById('confLogoUrl').value         = d.logo_url || '';
+        atualizarPreviewBanner(d.banner_url || '');
+        atualizarPreviewLogo(d.logo_url || '');
+
+        // Frete
+        const freteAtivo = !!d.frete_ativo;
+        document.getElementById('confFreteAtivo').checked    = freteAtivo;
+        document.getElementById('freteZonasContainer').style.display = freteAtivo ? 'block' : 'none';
+
+        // Justificativas
+        let cr = d.cancellation_reasons;
+        if (typeof cr === 'string') {
+            try { cr = JSON.parse(cr); } catch(e) { cr = []; }
+        }
+        cancellationReasons = Array.isArray(cr) ? cr : [];
+        renderJustificativas();
+
+        // WhatsApp
+        const waNumero = document.getElementById('confWhatsappNumero');
+        const waTemplate = document.getElementById('confWhatsappTemplate');
+        const waMesa = document.getElementById('confWaMesa');
+        const waRetirada = document.getElementById('confWaRetirada');
+        const waEntrega = document.getElementById('confWaEntrega');
+        if (waNumero) {
+            // Remover prefixo 55 do banco para exibir apenas DDD+número
+            let num = (d.whatsapp_numero || '').replace(/\D/g, '');
+            if (num.startsWith('55')) num = num.substring(2);
+            waNumero.value = num;
+        }
+        if (waTemplate) {
+            renderWaTemplateToEditor(d.whatsapp_msg_template || getWhatsappTemplateDefault());
+        }
+        if (waMesa) waMesa.checked = !!d.whatsapp_ativo_mesa;
+        if (waRetirada) waRetirada.checked = !!d.whatsapp_ativo_retirada;
+        if (waEntrega) waEntrega.checked = d.whatsapp_ativo_entrega !== false; // default true
+    }
+
+    if (!zonasRes.error) {
+        zonasEntrega = zonasRes.data || [];
+        renderZonasFrete();
+    }
+}
+
+// --- Funções de Tema (Empresa) ---
+
+function _setThemeField(pickerId, hexId, value) {
+    const picker = document.getElementById(pickerId);
+    const hex = document.getElementById(hexId);
+    if (picker) picker.value = value;
+    if (hex) hex.value = value;
+
+    // Adiciona listener para o campo HEX atualizar o picker
+    if (hex && !hex.dataset.hasListener) {
+        hex.dataset.hasListener = "true";
+        hex.addEventListener('input', (e) => {
+            const val = e.target.value;
+            if (/^#[0-9A-F]{6}$/i.test(val)) {
+                if (picker) picker.value = val;
+                previewTemaEmpresa();
+            }
+        });
+    }
+}
+
+// Atualiza o preview de tema no painel da empresa
+function previewTemaEmpresa() {
+    const primaria = document.getElementById('confTemaPrimaria').value;
+    const botao    = document.getElementById('confTemaBotao').value;
+    const texto    = document.getElementById('confTemaTexto').value;
+    const hover    = document.getElementById('confTemaHover').value;
+
+    // Sincroniza campos hex
+    document.getElementById('confTemaPrimariaHex').value = primaria;
+    document.getElementById('confTemaBotaoHex').value    = botao;
+    document.getElementById('confTemaTextoHex').value    = texto;
+    document.getElementById('confTemaHoverHex').value    = hover;
+
+    // Aplica no preview local (Mockup Premium)
+    const previewArea  = document.getElementById('empLivePreview');
+    const previewBtn   = document.getElementById('empLiveBtn');
+    const previewPrice = document.getElementById('empLivePrice');
+    const previewBadge = document.getElementById('empLiveBadge');
+    const previewTitle = document.getElementById('empLiveTitle');
+    const previewDesc  = document.getElementById('empLiveDesc');
+
+    if (previewArea) {
+        previewArea.style.backgroundColor = '#0d0d0d'; // Fundo fixo para o mockup
+    }
+    
+    if (previewTitle) previewTitle.style.color = texto;
+    if (previewDesc) previewDesc.style.color = texto + '99'; // Transparência suave
+
+    if (previewBtn) {
+        previewBtn.style.backgroundColor = botao;
+        // Calcula contraste básico para o texto do botão
+        const isLight = (hex) => {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return (r * 0.299 + g * 0.587 + b * 0.114) > 186;
+        };
+        previewBtn.style.color = isLight(botao) ? '#000' : '#fff';
+
+        // Eventos de hover para o preview local
+        previewBtn.onmouseenter = () => previewBtn.style.backgroundColor = hover;
+        previewBtn.onmouseleave = () => previewBtn.style.backgroundColor = botao;
+    }
+
+    if (previewPrice) {
+        previewPrice.style.color = primaria;
+    }
+
+    if (previewBadge) {
+        previewBadge.style.backgroundColor = primaria;
+        previewBadge.style.color = '#000'; // Geralmente preto em badges de destaque
+    }
+}
+window.previewTemaEmpresa = previewTemaEmpresa;
+
+// Salvar Tema (Empresa)
+document.getElementById('btnSalvarTemaEmpresa').addEventListener('click', async () => {
+    if (!validarAcessoModulo('config_personalizacao')) return;
+    const btn = document.getElementById('btnSalvarTemaEmpresa');
+    const empresaId = getTenantId();
+    
+    const tema_cor_primaria = document.getElementById('confTemaPrimaria').value;
+    const tema_cor_botao    = document.getElementById('confTemaBotao').value;
+    const tema_cor_texto    = document.getElementById('confTemaTexto').value;
+    const tema_cor_hover    = document.getElementById('confTemaHover').value;
+
+    try {
+        btn.disabled = true;
+        btn.textContent = 'Salvando...';
+
+        const { error } = await sb.from('empresas').update({
+            tema_cor_primaria,
+            tema_cor_botao,
+            tema_cor_texto,
+            tema_cor_hover,
+            // Resetamos os fundos caso o usuário tenha clicado em restaurar (que preencheu os campos internos mas eles não aparecem no DOM)
+            // Se o valor no DOM for o padrão, salvamos o padrão. 
+            // Como removemos os campos do DOM, vamos enviar os valores padrão caso o usuário salve após restaurar.
+            // Mas melhor: se o usuário restaurar, vamos garantir que esses campos sejam incluídos no update.
+            tema_cor_bg:      tema_cor_primaria === '#E5B25D' ? '#0d0d0d' : undefined,
+            tema_cor_surface: tema_cor_primaria === '#E5B25D' ? '#1a1a1a' : undefined,
+            cor_primaria: tema_cor_primaria // Sincroniza legado
+        }).eq('id', empresaId);
+
+        if (error) throw error;
+
+        showToast('Cores atualizadas com sucesso! ✅', 'success');
+        
+        // Atualiza estado global do tenant e aplica o tema imediatamente
+        if (window.TENANT) {
+            window.TENANT.tema_cor_primaria = tema_cor_primaria;
+            window.TENANT.tema_cor_botao = tema_cor_botao;
+            window.TENANT.tema_cor_texto = tema_cor_texto;
+            window.TENANT.tema_cor_hover = tema_cor_hover;
+            window.TENANT.tema_cor_bg = tema_cor_primaria === '#E5B25D' ? '#0d0d0d' : window.TENANT.tema_cor_bg;
+            window.TENANT.cor_primaria = tema_cor_primaria;
+        }
+
+        if (typeof _aplicarWhiteLabel === 'function') {
+            _aplicarWhiteLabel({
+                tema_cor_primaria,
+                tema_cor_botao,
+                tema_cor_texto,
+                tema_cor_hover,
+                tema_cor_bg: window.TENANT?.tema_cor_bg || '#0d0d0d',
+                tema_cor_surface: window.TENANT?.tema_cor_surface || '#1a1a1a',
+                nome: window.TENANT.nome,
+                logo_url: window.TENANT.logo_url,
+                brand_name: window.TENANT.brand_name,
+                brand_subtitle: window.TENANT.brand_subtitle
+            });
+        }
+
+    } catch (err) {
+        showToast('Erro ao salvar tema: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Salvar Cores';
+    }
+});
+
+// Restaurar Tema Padrão (Empresa)
+document.getElementById('btnRestaurarTemaEmpresa').addEventListener('click', () => {
+    if (!validarAcessoModulo('config_personalizacao')) return;
+    
+    // Valores padrão do sistema
+    const defaults = {
+        primaria: '#E5B25D',
+        botao:    '#E5B25D',
+        texto:    '#ffffff',
+        hover:    '#d4a14c',
+        bg:       '#0d0d0d',
+        surface:  '#1a1a1a'
+    };
+
+    _setThemeField('confTemaPrimaria',   'confTemaPrimariaHex',   defaults.primaria);
+    _setThemeField('confTemaBotao',      'confTemaBotaoHex',      defaults.botao);
+    _setThemeField('confTemaTexto',      'confTemaTextoHex',      defaults.texto);
+    _setThemeField('confTemaHover',      'confTemaHoverHex',      defaults.hover);
+    
+    // Atualiza preview local
+    previewTemaEmpresa();
+    
+    showToast('Visual restaurado (Clique em Salvar para confirmar)', 'info');
+});
+
+// --- Preview de imagem ---
+function atualizarPreviewBanner(url) {
+    const el = document.getElementById('previewBanner');
+    const placeholder = el.querySelector('.visual-preview-placeholder');
+    if (url) {
+        el.style.backgroundImage = `url(${url})`;
+        el.style.backgroundSize = 'cover';
+        el.style.backgroundPosition = 'center';
+        if (placeholder) placeholder.style.display = 'none';
+    } else {
+        el.style.backgroundImage = '';
+        if (placeholder) placeholder.style.display = '';
+    }
+}
+
+function atualizarPreviewLogo(url) {
+    const el = document.getElementById('previewLogo');
+    const placeholder = el.querySelector('.visual-preview-placeholder');
+    if (url) {
+        el.style.backgroundImage = `url(${url})`;
+        el.style.backgroundSize = 'contain';
+        el.style.backgroundRepeat = 'no-repeat';
+        el.style.backgroundPosition = 'center';
+        if (placeholder) placeholder.style.display = 'none';
+    } else {
+        el.style.backgroundImage = '';
+        if (placeholder) placeholder.style.display = '';
+    }
+}
+
+// --- Upload de imagem de visual (banner/logo) ---
+async function handleVisualImageUpload(file, tipo) {
+    showToast(`Enviando ${tipo}...`, 'success');
+    // Usamos a subpasta 'config' para banners e logos
+    const url = await window.handleCloudinaryUpload(file, 'config');
+    return url;
+}
+
+document.getElementById('uploadBanner').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = await handleVisualImageUpload(file, 'banner');
+    if (url) {
+        document.getElementById('confBannerUrl').value = url;
+        atualizarPreviewBanner(url);
+    }
+    e.target.value = '';
+};
+
+document.getElementById('uploadLogo').onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = await handleVisualImageUpload(file, 'logo');
+    if (url) {
+        document.getElementById('confLogoUrl').value = url;
+        atualizarPreviewLogo(url);
+    }
+    e.target.value = '';
+};
+
+document.getElementById('btnAplicarUrlBanner').onclick = () => {
+    const url = document.getElementById('confBannerUrl').value.trim();
+    atualizarPreviewBanner(url);
+    if(url) toggleUrlInput('containerBannerUrl');
+};
+
+document.getElementById('btnAplicarUrlLogo').onclick = () => {
+    const url = document.getElementById('confLogoUrl').value.trim();
+    atualizarPreviewLogo(url);
+    if(url) toggleUrlInput('containerLogoUrl');
+};
+
+// --- Salvar Personalização Visual ---
+document.getElementById('btnSalvarPersonalizacao').onclick = async () => {
+    if (!validarAcessoModulo('config_personalizacao')) return;
+    const btn = document.getElementById('btnSalvarPersonalizacao');
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+
+    const payload = {
+        empresa_id:     getTenantId(), // ← Multi-Tenant (upsert por empresa_id)
+        brand_name:     document.getElementById('confBrandName').value.trim(),
+        brand_subtitle: document.getElementById('confBrandSubtitle').value.trim(),
+        banner_url:     document.getElementById('confBannerUrl').value.trim(),
+        logo_url:       document.getElementById('confLogoUrl').value.trim(),
+        updated_at:     new Date().toISOString()
+    };
+
+    let error;
+    if (currentSettingsId) {
+        payload.id = currentSettingsId;
+        const res = await sb.from('store_settings').update(payload).eq('id', currentSettingsId);
+        error = res.error;
+    } else {
+        const res = await sb.from('store_settings').insert(payload).select();
+        error = res.error;
+        if (res.data && res.data[0]) currentSettingsId = res.data[0].id;
+    }
+
+    if (error) {
+        showToast('Erro ao salvar visual: ' + error.message, 'error');
+    } else {
+        showToast('Personalização visual salva!', 'success');
+
+        if (window.TENANT) {
+            window.TENANT.brand_name = payload.brand_name;
+            window.TENANT.brand_subtitle = payload.brand_subtitle;
+            if (payload.logo_url) window.TENANT.logo_url = payload.logo_url;
+        }
+
+        if (typeof _aplicarWhiteLabel === 'function') {
+            _aplicarWhiteLabel({
+                nome: payload.brand_name || window.TENANT.nome,
+                brand_name: payload.brand_name,
+                brand_subtitle: payload.brand_subtitle,
+                logo_url: payload.logo_url || window.TENANT.logo_url,
+                tema_cor_primaria: window.TENANT?.tema_cor_primaria,
+                tema_cor_botao: window.TENANT?.tema_cor_botao,
+                tema_cor_texto: window.TENANT?.tema_cor_texto,
+                tema_cor_bg: window.TENANT?.tema_cor_bg,
+                tema_cor_surface: window.TENANT?.tema_cor_surface,
+            });
+        }
+    }
+    btn.disabled = false;
+    btn.textContent = 'Salvar Visual';
+};
+
+// --- Toggle Frete ---
+let alternandoFrete = false;
+document.getElementById('confFreteAtivo').onchange = async function () {
+    if (alternandoFrete) return;
+    try {
+        alternandoFrete = true;
+    const ativo = this.checked;
+    document.getElementById('freteZonasContainer').style.display = ativo ? 'block' : 'none';
+
+    const payload = {
+        empresa_id: getTenantId(), // ← Multi-Tenant
+        frete_ativo: ativo,
+        updated_at: new Date().toISOString()
+    };
+    let error;
+    if (currentSettingsId) {
+        payload.id = currentSettingsId;
+        const res = await sb.from('store_settings').update(payload).eq('id', currentSettingsId);
+        error = res.error;
+    } else {
+        const res = await sb.from('store_settings').insert(payload).select();
+        error = res.error;
+        if (res.data && res.data[0]) currentSettingsId = res.data[0].id;
+    }
+
+    if (error) {
+        showToast('Erro ao salvar configuração de frete: ' + error.message, 'error');
+    } else {
+        showToast(ativo ? '🚚 Frete habilitado!' : 'Frete desabilitado.', 'success');
+    }
+    } catch (err) {
+        showToast('Erro ao alternar frete: ' + err.message, 'error');
+    } finally {
+        alternandoFrete = false;
+    }
+};
+
+// --- Render Zonas de Frete ---
+function renderZonasFrete() {
+    const tbody = document.getElementById('zonasBody');
+    if (!tbody) return;
+    if (zonasEntrega.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhuma zona cadastrada.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = zonasEntrega.map(z => `
+        <tr>
+            <td><strong>${z.name}</strong></td>
+            <td><span style="font-size:0.85rem; color:var(--text-muted);">${z.cidade || '-'}</span></td>
+            <td><span style="font-size:0.85rem; color:var(--text-muted);">${truncateNeighborhoods(z.neighborhoods)}</span></td>
+            <td>
+                <div class="fee-editable" onclick="window.tornarFeeEditavel(this, '${z.id}')" title="Clique para editar taxa">
+                    <strong>${formatCurrency(z.fee)}</strong>
+                </div>
+            </td>
+            <td><span class="badge ${z.active ? 'badge-active' : 'badge-inactive'}">${z.active ? 'Ativa' : 'Inativa'}</span></td>
+            <td>
+                <div class="actions-cell">
+                    <button class="btn-sm btn-edit" onclick="editarZona('${z.id}')">Editar</button>
+                    <button class="btn-sm btn-delete" onclick="excluirZona('${z.id}', '${z.name.replace(/'/g, "\\'")}')">Excluir</button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// --- Edição de Taxa Inline ---
+window.tornarFeeEditavel = (el, id) => {
+    if (el.querySelector('input')) return;
+    const valorAtual = parseFloat(el.textContent.replace('R$', '').replace('.', '').replace(',', '.').trim());
+    el.innerHTML = `<input type="number" step="0.01" class="inline-fee-input" value="${valorAtual}" onblur="window.salvarTaxaInline(this, '${id}')" onkeydown="if(event.key==='Enter') this.blur()">`;
+    const input = el.querySelector('input');
+    input.focus();
+    input.select();
+};
+
+window.salvarTaxaInline = async (input, id) => {
+    const novoValor = parseFloat(input.value);
+    if (isNaN(novoValor)) {
+        renderZonasFrete(); // Reverte se inválido
+        return;
+    }
+    
+    // Feedback visual imediato
+    const container = input.parentElement;
+    container.innerHTML = '<span style="font-size:0.8rem;opacity:0.6;">⏳...</span>';
+
+    const { error } = await sb.from('shipping_zones').update({ fee: novoValor }).eq('id', id);
+    if (error) {
+        showToast('Erro ao salvar taxa: ' + error.message, 'error');
+        renderZonasFrete();
+    } else {
+        const zona = zonasEntrega.find(z => z.id === id);
+        if (zona) zona.fee = novoValor;
+        renderZonasFrete();
+        showToast('Taxa atualizada!', 'success');
+    }
+};
+
+// --- CRUD Zonas de Frete ---
+document.getElementById('btnNovaZona').onclick = () => {
+    document.getElementById('modalZonaTitulo').textContent = 'Nova Zona de Entrega';
+    document.getElementById('zonaId').value = '';
+    document.getElementById('zonaNome').value = '';
+    document.getElementById('zonaCidade').value = '';
+    document.getElementById('zonaNeighborhoods').value = '';
+    document.getElementById('zonaFee').value = '';
+    document.getElementById('zonaAtivo').value = 'true';
+    abrirModal('modalZona');
+};
+
+window.editarZona = (id) => {
+    const z = zonasEntrega.find(x => x.id === id);
+    if (!z) return;
+    document.getElementById('modalZonaTitulo').textContent = 'Editar Zona';
+    document.getElementById('zonaId').value = z.id;
+    document.getElementById('zonaNome').value = z.name;
+    document.getElementById('zonaCidade').value = z.cidade || '';
+    document.getElementById('zonaNeighborhoods').value = z.neighborhoods || '';
+    document.getElementById('zonaFee').value = z.fee;
+    document.getElementById('zonaAtivo').value = String(z.active);
+    abrirModal('modalZona');
+};
+
+let salvandoZona = false;
+document.getElementById('btnSalvarZona').onclick = async () => {
+    if (salvandoZona) return;
+    if (!validarAcessoModulo('config_frete')) return;
+    const btn = document.getElementById('btnSalvarZona');
+    const id = document.getElementById('zonaId').value;
+    const nome = document.getElementById('zonaNome').value.trim();
+    const cidade = document.getElementById('zonaCidade').value.trim();
+    const neighborhoods = document.getElementById('zonaNeighborhoods').value.trim();
+    const fee = parseFloat(document.getElementById('zonaFee').value);
+    const ativo = document.getElementById('zonaAtivo').value === 'true';
+
+    if (!nome || !neighborhoods || isNaN(fee) || fee < 0) {
+        showToast('Preencha o nome da zona, os bairros e a taxa.', 'error');
+        return;
+    }
+
+    const payload = {
+        name: nome,
+        cidade: cidade,
+        neighborhoods: neighborhoods,
+        fee,
+        active: ativo
+    };
+
+    try {
+        salvandoZona = true;
+        btn.disabled = true;
+        btn.textContent = 'Salvando...';
+
+        let error;
+        if (id) {
+            ({ error } = await sb.from('shipping_zones').update(payload).eq('id', id));
+        } else {
+            // ← Multi-Tenant: injeta empresa_id no INSERT
+            ({ error } = await sb.from('shipping_zones').insert({ ...payload, empresa_id: getTenantId() }));
+        }
+
+        if (error) {
+            showToast('Erro ao salvar: ' + error.message, 'error');
+        } else {
+            showToast(id ? 'Zona atualizada!' : 'Zona criada!', 'success');
+            fecharModal('modalZona');
+            
+            // Recarrega do banco para garantir sincronia
+            const { data } = await sb.from('shipping_zones').select('*')
+                .eq('empresa_id', getTenantId())
+                .order('name');
+            zonasEntrega = data || [];
+            renderZonasFrete();
+        }
+    } catch (err) {
+        showToast('Erro inesperado: ' + err.message, 'error');
+    } finally {
+        salvandoZona = false;
+        btn.disabled = false;
+        btn.textContent = 'Salvar';
+    }
+};
+
+window.excluirZona = async (id, nome) => {
+    if (!await customConfirm('Excluir Zona', `Excluir a zona "${nome}"?`)) return;
+    const { error } = await sb.from('shipping_zones').delete().eq('id', id);
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return; }
+    showToast('Zona excluída!', 'success');
+    zonasEntrega = zonasEntrega.filter(z => z.id !== id);
+    renderZonasFrete();
+};
+
+// --- Geolocalização Helper ---
+async function getCoordinates(address) {
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`);
+        const data = await res.json();
+        if (data && data.length > 0) {
+            return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        }
+    } catch (e) { console.error("Erro geocoding: ", e); }
+    return null;
+}
+
+document.getElementById('btnSalvarConfig').onclick = async () => {
+    if (!validarAcessoModulo('config_endereco')) return;
+    const btn = document.getElementById('btnSalvarConfig');
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+
+    const payload = {
+        empresa_id:           getTenantId(), // ← Multi-Tenant (upsert por empresa_id)
+        store_name:           document.getElementById('confNomeLoja').value.trim(),
+        address_zip:          document.getElementById('confCep').value.trim(),
+        address_street:       document.getElementById('confLogradouro').value.trim(),
+        address_number:       document.getElementById('confNumero').value.trim(),
+        address_complement:   document.getElementById('confComplemento').value.trim(),
+        address_neighborhood: document.getElementById('confBairro').value.trim(),
+        address_city:         document.getElementById('confCidade').value.trim(),
+        address_state:        document.getElementById('confEstado').value.trim(),
+        address_reference:    document.getElementById('confReferencia').value.trim(),
+        opening_time:         document.getElementById('confOpeningTime').value,
+        closing_time:         document.getElementById('confClosingTime').value,
+        updated_at:           new Date().toISOString()
+    };
+    
+    let error;
+    if (currentSettingsId) {
+        payload.id = currentSettingsId;
+        const res = await sb.from('store_settings').update(payload).eq('id', currentSettingsId);
+        error = res.error;
+    } else {
+        const res = await sb.from('store_settings').insert(payload).select();
+        error = res.error;
+        if (res.data && res.data[0]) currentSettingsId = res.data[0].id;
+    }
+
+    if (error) {
+        showToast('Erro ao salvar: ' + error.message, 'error');
+    } else {
+        showToast('Configurações salvas!', 'success');
+        
+        // Atualiza variáveis globais de horário para refletir no Dashboard imediatamente
+        openingTime = payload.opening_time;
+        closingTime = payload.closing_time;
+
+        // Se o Dashboard estiver em modo operacional, atualiza a mensagem do período
+        if (currentModoDashboard === 'hoje-op' || currentModoDashboard === 'ontem-op') {
+            setModoDashboard(currentModoDashboard);
+        }
+    }
+    btn.disabled = false;
+    btn.textContent = 'Salvar Configurações';
+};
+
+// --- WhatsApp Config ---
+
+function getWhatsappTemplateDefault() {
+    return `*📦 NOVO PEDIDO*
+
+*👤 Cliente:* {{cliente_nome}}
+*📱 Telefone:* {{cliente_telefone}}
+
+*📍 Tipo:* {{tipo_entrega}}
+{{endereco}}
+
+*🛒 Itens:*
+{{itens}}
+
+*💵 Subtotal:* {{subtotal}}
+{{desconto}}{{frete}}*💰 TOTAL:* {{total}}
+
+*💳 Pagamento:* {{pagamento}}`;
+}
+
+// Mapa de variáveis para labels visuais
+const waPhMap = {
+    '{{cliente_nome}}': '👤 Nome do cliente',
+    '{{cliente_telefone}}': '📱 Telefone',
+    '{{tipo_entrega}}': '📍 Tipo de retirada',
+    '{{endereco}}': '🏠 Endereço',
+    '{{itens}}': '🛒 Lista de itens',
+    '{{subtotal}}': '💵 Subtotal',
+    '{{desconto}}': '🎟️ Desconto',
+    '{{frete}}': '📦 Frete',
+    '{{total}}': '💰 Total',
+    '{{pagamento}}': '💳 Forma de pagamento'
+};
+
+function renderWaTemplateToEditor(templateStr) {
+    let html = templateStr.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    // Converter markdown do WhatsApp para HTML (apenas na mesma linha)
+    html = html.replace(/\*([^\*\n]+)\*/g, '<b>$1</b>');
+    html = html.replace(/_([^\_\n]+)_/g, '<i>$1</i>');
+    html = html.replace(/~([^\~\n]+)~/g, '<s>$1</s>');
+    html = html.replace(/```([^`]+)```/g, '<code>$1</code>');
+
+    // Substituir placeholders por botões visuais
+    Object.keys(waPhMap).forEach(ph => {
+        // Fazer o escape seguro de todos os caracteres especiais do placeholder para o RegExp
+        const escapedPh = ph.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escapedPh, 'g');
+        const tagHtml = `<span class="wa-inserted-tag" contenteditable="false" data-ph="${ph}">${waPhMap[ph]}</span>`;
+        html = html.replace(regex, tagHtml);
+    });
+    
+    // Suporte a múltiplas quebras de linha no contenteditable
+    // Mas white-space: pre-wrap cuida das \n sozinhas se inserirmos como texto puro,
+    // porém como estamos usando innerHTML, precisamos garantir que o DOM entenda (opcional, vamos confiar no pre-wrap).
+    
+    document.getElementById('confWhatsappTemplate').innerHTML = html;
+}
+
+function getWaEditorText() {
+    const editor = document.getElementById('confWhatsappTemplate');
+    if (!editor) return '';
+    
+    let result = '';
+    
+    function traverse(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            return node.textContent.replace(/\u00A0/g, ' '); // Replace NBSP por espaço
+        }
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            // Se for nossa tag de variável, retorna o código original
+            if (node.classList && node.classList.contains('wa-inserted-tag')) {
+                return node.dataset.ph;
+            }
+            
+            let innerText = '';
+            for (let child of node.childNodes) {
+                innerText += traverse(child);
+            }
+            
+            const tag = node.tagName.toLowerCase();
+            
+            if (tag === 'br') return '\n';
+            if (tag === 'div' || tag === 'p') {
+                return '\n' + innerText;
+            }
+            
+            if (innerText === '') return '';
+            
+            // Converter tags HTML de volta para markdown do WhatsApp
+            if (tag === 'b' || tag === 'strong') return '*' + innerText + '*';
+            if (tag === 'i' || tag === 'em') return '_' + innerText + '_';
+            if (tag === 's' || tag === 'strike' || tag === 'del') return '~' + innerText + '~';
+            if (tag === 'code') return '```' + innerText + '```';
+            
+            return innerText;
+        }
+        return '';
+    }
+    
+    for (let child of editor.childNodes) {
+        result += traverse(child);
+    }
+    
+    if (result.startsWith('\n')) result = result.substring(1);
+    
+    return result;
+}
+
+function insertWaTag(ph) {
+    const editor = document.getElementById('confWhatsappTemplate');
+    editor.focus();
+    const tagHtml = `<span class="wa-inserted-tag" contenteditable="false" data-ph="${ph}">${waPhMap[ph]}</span>`;
+    
+    // Tenta inserir via comando nativo para respeitar o cursor
+    if (document.queryCommandSupported('insertHTML')) {
+        document.execCommand('insertHTML', false, tagHtml + '&nbsp;');
+    } else {
+        // Fallback
+        editor.innerHTML += tagHtml + '&nbsp;';
+    }
+}
+
+// Drag & Drop e Clique nas tags
+document.querySelectorAll('.wa-placeholder-tag').forEach(tag => {
+    // Clique
+    tag.onclick = (e) => {
+        e.preventDefault();
+        const ph = tag.dataset.ph;
+        insertWaTag(ph);
+        showToast(`"${tag.textContent.trim()}" inserido! ✅`, 'success');
+    };
+
+    // Início do Drag
+    tag.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('application/x-wa-tag', tag.dataset.ph);
+        e.dataTransfer.effectAllowed = 'copy';
+    });
+});
+
+// Eventos de Drop no Editor
+const waEditor = document.getElementById('confWhatsappTemplate');
+if (waEditor) {
+    waEditor.addEventListener('dragover', e => {
+        e.preventDefault(); // Necessário para permitir o drop
+        e.dataTransfer.dropEffect = 'copy';
+    });
+
+    waEditor.addEventListener('drop', e => {
+        e.preventDefault();
+        const ph = e.dataTransfer.getData('application/x-wa-tag');
+        if (!ph) return;
+
+        // Tentar posicionar o cursor no local do drop
+        let range;
+        if (document.caretRangeFromPoint) {
+            range = document.caretRangeFromPoint(e.clientX, e.clientY);
+        } else if (e.rangeParent) {
+            range = document.createRange();
+            range.setStart(e.rangeParent, e.rangeOffset);
+        }
+
+        if (range) {
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+
+        insertWaTag(ph);
+    });
+}
+
+// Restaurar template padrão
+const btnResetWa = document.getElementById('btnResetWaTemplate');
+if (btnResetWa) {
+    btnResetWa.onclick = () => {
+        renderWaTemplateToEditor(getWhatsappTemplateDefault());
+        showToast('Mensagem restaurada para o padrão!', 'success');
+    };
+}
+
+// Salvar configurações de WhatsApp
+const btnSalvarWa = document.getElementById('btnSalvarWhatsapp');
+const btnSalvarWaFooter = document.getElementById('btnSalvarWhatsappFooter');
+
+const salvarWhatsapp = async (btn) => {
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = 'Salvando...';
+
+    const numeroCru = (document.getElementById('confWhatsappNumero')?.value || '').replace(/\D/g, '');
+    const numero = numeroCru ? '55' + numeroCru : ''; // Adiciona prefixo +55 automaticamente
+    const template = getWaEditorText();
+    const ativoMesa = !!document.getElementById('confWaMesa')?.checked;
+    const ativoRetirada = !!document.getElementById('confWaRetirada')?.checked;
+    const ativoEntrega = !!document.getElementById('confWaEntrega')?.checked;
+
+    if (!numero && (ativoMesa || ativoRetirada || ativoEntrega)) {
+        showToast('Informe o número do WhatsApp para ativar o envio.', 'error');
+        btn.disabled = false;
+        btn.textContent = oldText;
+        return;
+    }
+
+    const payload = {
+        whatsapp_numero: numero || null,
+        whatsapp_msg_template: template || null,
+        whatsapp_ativo_mesa: ativoMesa,
+        whatsapp_ativo_retirada: ativoRetirada,
+        whatsapp_ativo_entrega: ativoEntrega,
+        updated_at: new Date().toISOString()
+    };
+
+    let error;
+    if (currentSettingsId) {
+        const res = await sb.from('store_settings').update(payload).eq('id', currentSettingsId);
+        error = res.error;
+    } else {
+        const res = await sb.from('store_settings').insert([{ ...payload, empresa_id: getTenantId() }]);
+        error = res.error;
+    }
+
+    btn.disabled = false;
+    btn.textContent = oldText;
+
+    if (error) {
+        showToast('Erro ao salvar WhatsApp', 'error');
+        console.error(error);
+    } else {
+        showToast('WhatsApp salvo com sucesso!', 'success');
+        // Recarregar configurações globalmente para refletir o novo número
+        carregarConfiguracoes();
+    }
+};
+
+if (btnSalvarWa) btnSalvarWa.onclick = () => salvarWhatsapp(btnSalvarWa);
+if (btnSalvarWaFooter) btnSalvarWaFooter.onclick = () => salvarWhatsapp(btnSalvarWaFooter);
+
+
+// --- Gestão de Atendentes ---
+let listaAtendentesLocal = [];
+
+async function hashSenha(senha) {
+    if (!senha) return null;
+    const msgUint8 = new TextEncoder().encode(senha);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function carregarAtendentesLista() {
+    try {
+        const { data, error } = await sb.from('atendentes')
+            .select('*')
+            .eq('empresa_id', getTenantId())
+            .order('nome');
+        
+        if (error) throw error;
+        listaAtendentesLocal = data || [];
+        renderAtendentesLista();
+    } catch (err) {
+        console.error('Erro ao carregar atendentes:', err);
+    }
+}
+
+function renderAtendentesLista() {
+    const tbody = document.getElementById('atendentesListaBody');
+    if (!tbody) return;
+
+    if (listaAtendentesLocal.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhum atendente cadastrado.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = listaAtendentesLocal.map(a => `
+        <tr>
+            <td><strong>${a.nome}</strong></td>
+            <td><code>${a.cpf}</code></td>
+            <td style="font-size:0.8rem; color:var(--text-muted);">${new Date(a.created_at).toLocaleDateString()}</td>
+            <td style="text-align: center;">
+                <div style="display: flex; gap: 8px; justify-content: center;">
+                    <button class="btn-primary btn-sm" onclick="abrirModalAtendente('${a.id}')" title="Editar">✏️</button>
+                    <button class="btn-cancel btn-sm" onclick="excluirAtendente('${a.id}', '${a.nome}')" title="Excluir">🗑️</button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+window.abrirModalAtendente = (id = null) => {
+    const modal = document.getElementById('modalAtendente');
+    const title = document.getElementById('atendenteModalTitle');
+    const inputId = document.getElementById('atendenteId');
+    const inputNome = document.getElementById('atendenteNome');
+    const inputCpf = document.getElementById('atendenteCpf');
+    const inputSenha = document.getElementById('atendenteSenha');
+    const dicaSenha = document.getElementById('atendenteSenhaDica');
+
+    inputId.value = id || '';
+    inputNome.value = '';
+    inputCpf.value = '';
+    inputSenha.value = '';
+    
+    if (id) {
+        title.textContent = 'Editar Atendente';
+        const a = listaAtendentesLocal.find(x => x.id === id);
+        if (a) {
+            inputNome.value = a.nome;
+            inputCpf.value = a.cpf;
+        }
+        dicaSenha.textContent = 'Deixe em branco para manter a senha atual.';
+    } else {
+        title.textContent = 'Novo Atendente';
+        dicaSenha.textContent = 'Senha obrigatória para novos cadastros.';
+    }
+
+    abrirModal('modalAtendente');
+};
+
+document.getElementById('btnSalvarAtendente').onclick = async () => {
+    const id = document.getElementById('atendenteId').value;
+    const nome = document.getElementById('atendenteNome').value.trim();
+    const cpf = document.getElementById('atendenteCpf').value.trim().replace(/\D/g, '');
+    const senhaRaw = document.getElementById('atendenteSenha').value;
+
+    if (!nome || !cpf) {
+        showToast('Nome e CPF são obrigatórios', 'warning');
+        return;
+    }
+    if (cpf.length !== 11) {
+        showToast('CPF deve ter 11 dígitos', 'warning');
+        return;
+    }
+    if (!id && !senhaRaw) {
+        showToast('A senha é obrigatória para novos cadastros', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('btnSalvarAtendente');
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+
+    try {
+        const payload = { 
+            nome, 
+            cpf, 
+            empresa_id: getTenantId(),
+            senha_hash: true 
+        };
+        
+        if (senhaRaw) {
+            payload.senha = await hashSenha(senhaRaw);
+        }
+
+        let res;
+        if (id) {
+            res = await sb.from('atendentes').update(payload).eq('id', id);
+        } else {
+            res = await sb.from('atendentes').insert(payload);
+        }
+
+        if (res.error) {
+            if (res.error.message.includes('unique')) {
+                showToast('Este CPF já está cadastrado nesta empresa', 'error');
+            } else {
+                showToast('Erro ao salvar: ' + res.error.message, 'error');
+            }
+        } else {
+            showToast('Atendente salvo! Próximo...', 'success');
+            
+            // Limpa tudo para o próximo cadastro
+            document.getElementById('atendenteId').value = ''; 
+            document.getElementById('atendenteModalTitle').textContent = 'Novo Atendente';
+            document.getElementById('atendenteNome').value = '';
+            document.getElementById('atendenteCpf').value = '';
+            document.getElementById('atendenteSenha').value = '';
+            
+            document.getElementById('atendenteNome').focus();
+
+            carregarAtendentesLista();
+        }
+    } catch (err) {
+        showToast('Erro: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Salvar';
+    }
+};
+
+window.excluirAtendente = async (id, nome) => {
+    if (!await customConfirm('Excluir Atendente', `Deseja realmente remover ${nome} da equipe?`)) return;
+    
+    const { error } = await sb.from('atendentes').delete().eq('id', id);
+    if (error) {
+        showToast('Erro ao excluir: ' + error.message, 'error');
+    } else {
+        showToast('Atendente removido!', 'success');
+        carregarAtendentesLista();
+    }
+};
+
+async function buscarCepAdmin() {
+    const cep = document.getElementById('confCep').value.replace(/\D/g, '');
+    if (cep.length !== 8) return;
+    
+    try {
+        const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        const data = await res.json();
+        if (!data.erro) {
+            document.getElementById('confLogradouro').value = data.logradouro || '';
+            document.getElementById('confBairro').value = data.bairro || '';
+            document.getElementById('confCidade').value = data.localidade || '';
+            document.getElementById('confEstado').value = data.uf || '';
+            document.getElementById('confNumero').focus();
+        } else {
+            showToast('CEP não encontrado.', 'error');
+        }
+    } catch (err) {
+        console.error('Erro ao buscar CEP:', err);
+    }
+}
+
+// Formatação e Auto-fetch CEP
+document.getElementById('confCep').oninput = (e) => {
+    let v = e.target.value.replace(/\D/g, '');
+    
+    // Auto-fetch ao atingir 8 dígitos
+    if (v.length === 8) {
+        buscarCepAdmin();
+    }
+
+    if (v.length > 5) v = v.slice(0, 5) + '-' + v.slice(5, 8);
+    e.target.value = v;
+};
+
+// --- Custom Time Picker Logic ---
+let activeTimeTarget = null;
+let currentHour = 18;
+let currentMin = 0;
+
+window.openTimePicker = (targetId, title) => {
+    activeTimeTarget = document.getElementById(targetId);
+    document.getElementById('timePickerTitle').textContent = title;
+    
+    const val = activeTimeTarget.value || '18:00';
+    const [h, m] = val.split(':').map(Number);
+    currentHour = h;
+    currentMin = m;
+    
+    updateTimeDisplay();
+    document.getElementById('modalTimePicker').classList.add('active');
+};
+
+window.adjustTime = (type, amount) => {
+    if (type === 'hour') {
+        currentHour = (currentHour + amount + 24) % 24;
+    } else {
+        currentMin = (currentMin + amount + 60) % 60;
+    }
+    updateTimeDisplay();
+};
+
+function updateTimeDisplay() {
+    document.getElementById('displayHour').value = currentHour.toString().padStart(2, '0');
+    document.getElementById('displayMin').value = currentMin.toString().padStart(2, '0');
+}
+
+// Lógica para digitação manual no picker
+document.getElementById('displayHour').oninput = function() {
+    let val = parseInt(this.value);
+    if (!isNaN(val)) {
+        if (val > 23) val = 23;
+        if (val < 0) val = 0;
+        currentHour = val;
+    }
+};
+document.getElementById('displayHour').onblur = updateTimeDisplay;
+
+document.getElementById('displayMin').oninput = function() {
+    let val = parseInt(this.value);
+    if (!isNaN(val)) {
+        if (val > 59) val = 59;
+        if (val < 0) val = 0;
+        currentMin = val;
+    }
+};
+document.getElementById('displayMin').onblur = updateTimeDisplay;
+
+window.closeTimePicker = () => {
+    document.getElementById('modalTimePicker').classList.remove('active');
+};
+
+window.confirmTimePicker = () => {
+    const timeStr = `${currentHour.toString().padStart(2, '0')}:${currentMin.toString().padStart(2, '0')}`;
+    activeTimeTarget.value = timeStr;
+    
+    // Dispara evento de mudança se necessário
+    activeTimeTarget.dispatchEvent(new Event('change'));
+    
+    closeTimePicker();
+};
+
+// Vincula os inputs ao novo picker
+document.addEventListener('DOMContentLoaded', () => {
+    const openInp = document.getElementById('confOpeningTime');
+    const closeInp = document.getElementById('confClosingTime');
+    
+    if (openInp) {
+        openInp.readOnly = true;
+        openInp.onclick = () => openTimePicker('confOpeningTime', '🕒 Horário de Abertura');
+    }
+    if (closeInp) {
+        closeInp.readOnly = true;
+        closeInp.onclick = () => openTimePicker('confClosingTime', '🕒 Horário de Fechamento');
+    }
+
+    initMobileMenu();
+});
+
+function initMobileMenu() {
+    const btnMobileMenu = document.getElementById('btnMobileMenu');
+    const btnCloseMobile = document.getElementById('btnCloseMobile');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    const navItems = document.querySelectorAll('.nav-item');
+
+    if (btnMobileMenu) {
+        btnMobileMenu.onclick = () => {
+            sidebar.classList.add('active');
+            sidebarOverlay.classList.add('active');
+        };
+    }
+
+    if (btnCloseMobile) {
+        btnCloseMobile.onclick = () => {
+            sidebar.classList.remove('active');
+            sidebarOverlay.classList.remove('active');
+        };
+    }
+
+    if (sidebarOverlay) {
+        sidebarOverlay.onclick = () => {
+            sidebar.classList.remove('active');
+            sidebarOverlay.classList.remove('active');
+        };
+    }
+
+    // Navegação via sidebar
+    navItems.forEach(item => {
+        item.onclick = () => {
+            const tabId = item.getAttribute('data-tab');
+            const correspondingTabBtn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+            if (correspondingTabBtn) {
+                switchTab(tabId, correspondingTabBtn);
+            }
+            
+            sidebar.classList.remove('active');
+            sidebarOverlay.classList.remove('active');
+        };
+    });
+
+    // Logout Mobile
+    const btnLogoutMobile = document.getElementById('btnLogoutMobile');
+    if (btnLogoutMobile) {
+        btnLogoutMobile.onclick = () => {
+            document.getElementById('btnLogout').click();
+        };
+    }
+}
+
+// --- Justificativas de Cancelamento ---
+function renderJustificativas() {
+    const tbody = document.getElementById('justificativasBody');
+    if (!tbody) return;
+    if (cancellationReasons.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:1rem;">Nenhuma justificativa cadastrada.</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = cancellationReasons.map((r, i) => `
+        <tr class="justificativa-row" data-index="${i}">
+            <td style="color: var(--text-muted); text-align: center; font-size: 1.2rem;"><span class="drag-handle-just" style="cursor:grab;">☰</span></td>
+            <td>${r}</td>
+            <td>
+                <button class="btn-sm btn-delete" onclick="removerJustificativa(${i})">Excluir</button>
+            </td>
+        </tr>
+    `).join('');
+
+    initSortableJustificativas();
+}
+
+function initSortableJustificativas() {
+    const el = document.getElementById('justificativasBody');
+    if (!el || el.sortable) return;
+
+    el.sortable = new Sortable(el, {
+        animation: 150,
+        handle: '.drag-handle-just',
+        ghostClass: 'sortable-ghost',
+        dragClass: 'dragging',
+        chosenClass: 'dragging',
+        onStart: () => el.classList.add('is-dragging'),
+        onEnd: async (evt) => {
+            el.classList.remove('is-dragging');
+            if (evt.oldIndex === evt.newIndex) return;
+
+            // Reordenar baseado no novo estado do DOM
+            const newOrder = Array.from(el.querySelectorAll('.justificativa-row')).map(tr => {
+                const idx = parseInt(tr.dataset.index);
+                return cancellationReasons[idx];
+            });
+            cancellationReasons = newOrder;
+
+            renderJustificativas(); // Re-render para atualizar os data-index
+            await salvarJustificativasNoBanco();
+            showToast('Ordem atualizada!', 'success');
+        }
+    });
+}
+
+// =================== GESTÃO DE MOTIVOS DE ESTOQUE ===================
+
+async function carregarMotivosEstoque() {
+    const { data, error } = await sb.from('stock_reasons').select('*')
+        .eq('empresa_id', getTenantId())
+        .order('order_position', { ascending: true });
+    if (!error) {
+        motivosEstoque = data;
+        renderizarMotivosEstoque();
+        initSortableMotivosEstoque();
+    }
+}
+
+function renderizarMotivosEstoque() {
+    const renderTable = (tbodyId) => {
+        const tbody = document.getElementById(tbodyId);
+        if (!tbody) return;
+
+        if (motivosEstoque.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:1rem;">Nenhum motivo cadastrado.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = motivosEstoque.map((m, index) => `
+            <tr data-id="${m.id}" data-index="${index}" class="motivo-estoque-row">
+                <td class="drag-handle-motivo" style="text-align: center; color: var(--text-muted); cursor: grab; font-size: 1.2rem; user-select: none; width: 40px;">
+                    ☰
+                </td>
+                <td style="font-weight:600; cursor:pointer;" onclick="editarMotivoEstoque('${m.id}')" title="Clique para editar">${m.name}</td>
+                <td style="text-align: center; width: 100px;">
+                    <label class="switch" style="display: inline-block;">
+                        <input type="checkbox" ${m.active ? 'checked' : ''} onchange="toggleStatusMotivoEstoque('${m.id}', this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </td>
+                <td style="width: 150px;">
+                    <div style="display:flex;gap:8px;justify-content:center;">
+                        <button class="btn-sm btn-edit" onclick="editarMotivoEstoque('${m.id}')">Editar</button>
+                        <button class="btn-sm btn-delete" onclick="excluirMotivoEstoque('${m.id}')">Excluir</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    };
+
+    renderTable('motivosEstoqueBody');
+    renderTable('lojaMotivosEstoqueBody');
+}
+
+function initSortableMotivosEstoque() {
+    const initSortable = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        
+        if (typeof Sortable === 'undefined') return;
+
+        const oldSortable = Sortable.get(el);
+        if (oldSortable) oldSortable.destroy();
+
+        el.sortable = new Sortable(el, {
+            animation: 150,
+            handle: '.drag-handle-motivo',
+            ghostClass: 'sortable-ghost',
+            dragClass: 'dragging',
+            forceFallback: true,
+            onStart: () => el.classList.add('is-dragging'),
+            onEnd: async (evt) => {
+                el.classList.remove('is-dragging');
+                if (evt.oldIndex === evt.newIndex) return;
+
+                // Reordenar baseado no novo estado do DOM
+                const rows = Array.from(el.querySelectorAll('.motivo-estoque-row'));
+                const updates = rows.map((tr, index) => ({
+                    id: tr.dataset.id,
+                    order_position: index + 1
+                }));
+
+                // Atualizar localmente para manter sincronizado sem re-renderizar imediatamente
+                updates.forEach(u => {
+                    const item = motivosEstoque.find(m => m.id === u.id);
+                    if (item) item.order_position = u.order_position;
+                });
+                
+                // Reordenar o array original para bater com o novo DOM
+                motivosEstoque.sort((a, b) => (a.order_position || 0) - (b.order_position || 0));
+
+                await salvarOrdemMotivosEstoque(updates);
+                showToast('Ordem atualizada!', 'success');
+            }
+        });
+    };
+
+    initSortable('motivosEstoqueBody');
+    initSortable('lojaMotivosEstoqueBody');
+}
+
+async function salvarOrdemMotivosEstoque(updates) {
+    const { error } = await sb.from('stock_reasons').upsert(updates, { onConflict: 'id' });
+    if (error) {
+        console.error('Erro ao salvar ordem:', error);
+        showToast('Erro ao sincronizar ordem.', 'error');
+    }
+}
+
+const novoMotivoHandler = async () => {
+    // Allow if either cardapio estoque or loja estoque module is active
+    const podeCardapio = typeof validarAcessoModulo !== 'function' || validarAcessoModulo('produtos_estoque', true);
+    const podeLoja = typeof isModuloAtivo === 'function' ? isModuloAtivo('loja_estoque') : true;
+    if (!podeCardapio && !podeLoja) {
+        showToast('Módulo desativado. Contrate para liberar acesso.', 'error');
+        return;
+    }
+    const name = await customPrompt('Novo Motivo de Estoque', 'Digite o nome do motivo:');
+    if (name && name.trim()) {
+        const nextOrder = (motivosEstoque.length > 0) 
+            ? Math.max(...motivosEstoque.map(m => m.order_position || 0)) + 1 
+            : 1;
+
+        const { error } = await sb.from('stock_reasons').insert({ 
+            name: name.trim(), 
+            empresa_id: getTenantId(),
+            order_position: nextOrder
+        });
+        if (error) showToast('Erro ao criar: ' + error.message, 'error');
+        else {
+            showToast('Motivo criado!', 'success');
+            carregarMotivosEstoque();
+        }
+    }
+};
+
+window.editarMotivoEstoque = async (id) => {
+    const motivo = motivosEstoque.find(m => m.id === id);
+    const newName = await customPrompt('Editar Motivo', 'Nome do motivo:', motivo.name);
+    if (newName && newName.trim() && newName !== motivo.name) {
+        const { error } = await sb.from('stock_reasons').update({ name: newName.trim() }).eq('id', id);
+        if (error) showToast('Erro ao atualizar: ' + error.message, 'error');
+        else {
+            showToast('Motivo atualizado!', 'success');
+            carregarMotivosEstoque();
+        }
+    }
+};
+
+window.toggleStatusMotivoEstoque = async (id, newStatus) => {
+    const { error } = await sb.from('stock_reasons').update({ active: newStatus }).eq('id', id);
+    if (error) showToast('Erro ao alterar status.', 'error');
+    else carregarMotivosEstoque();
+};
+
+window.excluirMotivoEstoque = async (id) => {
+    if (!await customConfirm('Excluir Motivo', 'Tem certeza? Isso pode afetar o histórico se houver movimentações vinculadas.')) return;
+    const { error } = await sb.from('stock_reasons').delete().eq('id', id);
+    if (error) showToast('Erro ao excluir: ' + error.message, 'error');
+    else {
+        showToast('Motivo excluído!', 'success');
+        carregarMotivosEstoque();
+    }
+};
+
+async function salvarJustificativasNoBanco() {
+    const { error } = await sb.from('store_settings').update({
+        cancellation_reasons: cancellationReasons,
+        updated_at: new Date().toISOString()
+    }).eq('empresa_id', getTenantId()); // ← Multi-Tenant
+
+    if (error) {
+        showToast('Erro ao salvar justificativas: ' + error.message, 'error');
+    }
+}
+
+    const btnAdj = document.getElementById('btnAdicionarJustificativa');
+    if (btnAdj) {
+        btnAdj.onclick = async () => {
+            if (!validarAcessoModulo('config_cancelamentos')) return;
+            const input = document.getElementById('inputNovaJustificativa');
+            const val = input.value.trim();
+            if (!val) return;
+            if (cancellationReasons.includes(val)) {
+                showToast('Esta justificativa já existe.', 'error');
+                return;
+            }
+            
+            btnAdj.disabled = true;
+            cancellationReasons.push(val);
+            input.value = '';
+            renderJustificativas();
+            
+            await salvarJustificativasNoBanco();
+            showToast('Justificativa adicionada!', 'success');
+            btnAdj.disabled = false;
+        };
+    }
+
+window.removerJustificativa = async (index) => {
+    cancellationReasons.splice(index, 1);
+    renderJustificativas();
+    await salvarJustificativasNoBanco();
+    showToast('Justificativa removida!', 'success');
+};
+
+// ============================================================
+// MÓDULO CLIENTES PREMIUM E PERFIS DE CARDÁPIO
+// ============================================================
+
+let listaClientesPremium = [];
+let listaPerfisCardapio = [];
+
+// --- Perfis de Cardápio ---
+
+async function obterCategoriasDisponiveis() {
+    let cats = [];
+    try {
+        if (isModuloAtivo('loja_roupas')) {
+            const { data, error } = await sb.from('loja_categorias')
+                .select('id, nome')
+                .eq('empresa_id', getTenantId())
+                .order('nome');
+            if (error) throw error;
+            cats = (data || []).map(c => ({ id: c.id, name: c.nome }));
+        } else {
+            const { data, error } = await sb.from('categories')
+                .select('id, name')
+                .eq('empresa_id', getTenantId())
+                .order('name');
+            if (error) throw error;
+            cats = data || [];
+        }
+    } catch (err) {
+        console.error('[Perfil Cardapio] Erro ao carregar categorias:', err);
+    }
+    return cats;
+}
+
+// --- Perfis de Cardápio ---
+
+async function carregarPerfisCardapio() {
+    try {
+        window.__categoriasList = await obterCategoriasDisponiveis();
+        const { data, error } = await sb.from('perfis_cardapio')
+            .select('*, perfil_cardapio_categorias(category_id), perfil_cardapio_produtos(product_id)')
+            .eq('empresa_id', getTenantId())
+            .order('nome');
+        if (error) throw error;
+        listaPerfisCardapio = data || [];
+        renderPerfisCardapio();
+        atualizarSelectPerfis();
+    } catch (err) {
+        console.error('Erro ao carregar perfis:', err);
+    }
+}
+
+function renderPerfisCardapio() {
+    const container = document.getElementById('perfisCardapioLista');
+    if (!container) return;
+
+    if (listaPerfisCardapio.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    container.innerHTML = listaPerfisCardapio.map(p => {
+        const cats = (p.perfil_cardapio_categorias || []).map(pc => {
+            const cat = (window.__categoriasList || []).find(c => c.id === pc.category_id);
+            return cat ? cat.name : '?';
+        });
+        return `
+            <div class="config-card" style="margin-bottom: 1rem; padding: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong>${p.nome}</strong>
+                        ${p.descricao ? `<span style="color:var(--text-muted); margin-left:10px; font-size:0.85rem;">${p.descricao}</span>` : ''}
+                        <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">
+                            ${cats.length > 0 ? cats.map(c => `<span style="background:rgba(229,178,93,0.1); color:var(--primary); padding:2px 10px; border-radius:50px; font-size:0.75rem;">${c}</span>`).join('') : '<span style="color:var(--text-muted); font-size:0.8rem;">Nenhuma categoria selecionada</span>'}
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn-primary btn-sm" onclick="abrirModalPerfilCardapio('${p.id}')" title="Editar">✏️</button>
+                        <button class="btn-cancel btn-sm" onclick="excluirPerfilCardapio('${p.id}', '${p.nome}')" title="Excluir">🗑️</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+window.abrirModalPerfilCardapio = async (id = null) => {
+    const inputId   = document.getElementById('perfilCardapioId');
+    const inputNome = document.getElementById('pcNome');
+    const inputDesc = document.getElementById('pcDescricao');
+    const title     = document.getElementById('perfilCardapioModalTitle');
+    const container = document.getElementById('pcArvoreContainer');
+
+    inputId.value   = id || '';
+    inputNome.value = '';
+    inputDesc.value = '';
+    container.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding: 2rem;">Carregando...</p>';
+    abrirModal('modalPerfilCardapio');
+
+    // Fetch categorias
+    const cats = await obterCategoriasDisponiveis();
+    window.__categoriasList = cats;
+
+    // Fetch todos os produtos agrupados por categoria
+    const { data: prodsData } = await sb.from('products')
+        .select('id, name, category_id')
+        .eq('empresa_id', getTenantId())
+        .order('name');
+    const prods = prodsData || [];
+    window.__produtosList = prods;
+
+    // Fetch seleções salvas
+    let selectedCats = new Set();
+    let selectedProds = new Set();
+
+    if (id) {
+        title.textContent = '📋 Editar Perfil de Cardápio';
+        const perfil = listaPerfisCardapio.find(p => p.id === id);
+        if (perfil) {
+            inputNome.value = perfil.nome;
+            inputDesc.value = perfil.descricao || '';
+            (perfil.perfil_cardapio_categorias || []).forEach(pc => selectedCats.add(pc.category_id));
+            (perfil.perfil_cardapio_produtos   || []).forEach(pp => selectedProds.add(pp.product_id));
+        }
+    } else {
+        title.textContent = '📋 Novo Perfil de Cardápio';
+    }
+
+    // Guarda os sets no escopo global para o salvar
+    window.__pcSelectedCats  = selectedCats;
+    window.__pcSelectedProds = selectedProds;
+
+    function renderArvore() {
+        if (!cats || cats.length === 0) {
+            container.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:2rem;">Nenhuma categoria cadastrada.</p>';
+            return;
+        }
+
+        container.innerHTML = cats.map(cat => {
+            const catProds = prods.filter(p => p.category_id === cat.id);
+            const catAtiva = selectedCats.has(cat.id);
+            const grupoId  = `pcGrupo_${cat.id.replace(/-/g, '')}`;
+
+            const produtosHTML = catProds.length === 0 ? '' : catProds.map(p => {
+                const prodAtivo = selectedProds.has(p.id);
+                return `<div class="pc-module-item" data-prod-id="${p.id}">
+                    <span>${p.name}</span>
+                    <label class="pc-switch" onclick="event.stopPropagation()">
+                        <input type="checkbox" class="pc-prod-toggle" data-prod-id="${p.id}" ${prodAtivo ? 'checked' : ''}>
+                        <span class="pc-slider"></span>
+                    </label>
+                </div>`;
+            }).join('');
+
+            return `<div class="pc-module-card">
+                <div class="pc-module-header" onclick="pcToggleAccordion('${grupoId}', '${cat.id}')">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="pc-accordion-icon" id="pcIcon_${grupoId}">▶</span>
+                        <div>
+                            <h4 class="pc-cat-title">📂 ${cat.name.toUpperCase()}</h4>
+                            ${catProds.length > 0 ? `<small class="pc-cat-subtitle">${catProds.length} produto(s)</small>` : ''}
+                        </div>
+                    </div>
+                    <label class="pc-switch" onclick="event.stopPropagation()">
+                        <input type="checkbox" class="pc-cat-toggle" data-cat-id="${cat.id}" ${catAtiva ? 'checked' : ''}>
+                        <span class="pc-slider"></span>
+                    </label>
+                </div>
+                <div class="pc-grupo-content collapsed" id="${grupoId}">
+                    ${catProds.length === 0
+                        ? '<p class="pc-no-prods">Nenhum produto nesta categoria.</p>'
+                        : produtosHTML
+                    }
+                </div>
+            </div>`;
+        }).join('');
+
+        // Bind category toggle
+        container.querySelectorAll('.pc-cat-toggle').forEach(chk => {
+            chk.onchange = () => {
+                const catId = chk.dataset.catId;
+                if (chk.checked) {
+                    selectedCats.add(catId);
+                    // Marcar todos os produtos desta categoria
+                    prods.filter(p => p.category_id === catId).forEach(p => {
+                        selectedProds.add(p.id);
+                        const prodChk = container.querySelector(`.pc-prod-toggle[data-prod-id="${p.id}"]`);
+                        if (prodChk) prodChk.checked = true;
+                    });
+                } else {
+                    selectedCats.delete(catId);
+                    // Desmarcar produtos desta categoria
+                    prods.filter(p => p.category_id === catId).forEach(p => {
+                        selectedProds.delete(p.id);
+                        const prodChk = container.querySelector(`.pc-prod-toggle[data-prod-id="${p.id}"]`);
+                        if (prodChk) prodChk.checked = false;
+                    });
+                }
+            };
+        });
+
+        // Bind product toggle
+        container.querySelectorAll('.pc-prod-toggle').forEach(chk => {
+            chk.onchange = () => {
+                const prodId = chk.dataset.prodId;
+                if (chk.checked) {
+                    selectedProds.add(prodId);
+                    // Garantir que a categoria mãe está ativa
+                    const prod = prods.find(p => p.id === prodId);
+                    if (prod && !selectedCats.has(prod.category_id)) {
+                        selectedCats.add(prod.category_id);
+                        const catChk = container.querySelector(`.pc-cat-toggle[data-cat-id="${prod.category_id}"]`);
+                        if (catChk) catChk.checked = true;
+                    }
+                } else {
+                    selectedProds.delete(prodId);
+                    // Verificar se todos os produtos desta categoria foram desmarcados
+                    const prod = prods.find(p => p.id === prodId);
+                    if (prod && selectedCats.has(prod.category_id)) {
+                        const catProds = prods.filter(p => p.category_id === prod.category_id);
+                        const anyActive = catProds.some(p => selectedProds.has(p.id));
+                        if (!anyActive) {
+                            selectedCats.delete(prod.category_id);
+                            const catChk = container.querySelector(`.pc-cat-toggle[data-cat-id="${prod.category_id}"]`);
+                            if (catChk) catChk.checked = false;
+                        }
+                    }
+                }
+            };
+        });
+    }
+
+    renderArvore();
+
+    // Expor toggle accordion globalmente (precisa existir no momento do onclick inline)
+    window.pcToggleAccordion = (grupoId, catId) => {
+        const grupo = document.getElementById(grupoId);
+        const icon  = document.getElementById(`pcIcon_${grupoId}`);
+        if (!grupo) return;
+        const isCollapsed = grupo.classList.contains('collapsed');
+
+        // Fechar todos os outros antes de abrir
+        container.querySelectorAll('.pc-grupo-content').forEach(el => {
+            if (el.id !== grupoId) {
+                el.classList.add('collapsed');
+                const otherIcon = document.getElementById(`pcIcon_${el.id}`);
+                if (otherIcon) otherIcon.textContent = '▶';
+            }
+        });
+
+        // Alternar o atual
+        grupo.classList.toggle('collapsed', !isCollapsed);
+        icon.textContent = isCollapsed ? '▼' : '▶';
+    };
+};
+
+document.getElementById('btnSalvarPerfilCardapio').onclick = async () => {
+    const id       = document.getElementById('perfilCardapioId').value;
+    const nome     = document.getElementById('pcNome').value.trim();
+    const descricao = document.getElementById('pcDescricao').value.trim();
+
+    if (!nome) { showToast('Nome do perfil é obrigatório', 'warning'); return; }
+
+    const btn = document.getElementById('btnSalvarPerfilCardapio');
+    btn.disabled   = true;
+    btn.textContent = 'Salvando...';
+
+    try {
+        const payload = { nome, descricao, empresa_id: getTenantId() };
+        let perfilId  = id;
+
+        if (id) {
+            const { error } = await sb.from('perfis_cardapio').update(payload).eq('id', id);
+            if (error) throw error;
+        } else {
+            const { data, error } = await sb.from('perfis_cardapio').insert(payload).select().single();
+            if (error) throw error;
+            perfilId = data.id;
+        }
+
+        // Sync categorias
+        await sb.from('perfil_cardapio_categorias').delete().eq('perfil_id', perfilId);
+        if (window.__pcSelectedCats && window.__pcSelectedCats.size > 0) {
+            const { error } = await sb.from('perfil_cardapio_categorias').insert(
+                [...window.__pcSelectedCats].map(catId => ({ perfil_id: perfilId, category_id: catId }))
+            );
+            if (error) throw error;
+        }
+
+        // Sync produtos
+        await sb.from('perfil_cardapio_produtos').delete().eq('perfil_id', perfilId);
+        if (window.__pcSelectedProds && window.__pcSelectedProds.size > 0) {
+            const { error } = await sb.from('perfil_cardapio_produtos').insert(
+                [...window.__pcSelectedProds].map(prodId => ({ perfil_id: perfilId, product_id: prodId }))
+            );
+            if (error) throw error;
+        }
+
+        showToast('Perfil salvo com sucesso!', 'success');
+        fecharModal('modalPerfilCardapio');
+        carregarPerfisCardapio();
+    } catch (err) {
+        showToast('Erro ao salvar: ' + err.message, 'error');
+    } finally {
+        btn.disabled    = false;
+        btn.textContent = 'Salvar';
+    }
+};
+
+
+
+window.excluirPerfilCardapio = async (id, nome) => {
+    if (!await customConfirm('Excluir Perfil', `Deseja remover o perfil "${nome}"? Clientes vinculados ficarão sem perfil.`)) return;
+    const { error } = await sb.from('perfis_cardapio').delete().eq('id', id);
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); }
+    else { showToast('Perfil removido!', 'success'); carregarPerfisCardapio(); }
+};
+
+function atualizarSelectPerfis() {
+    const select = document.getElementById('cpPerfil');
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">Cardápio completo (sem restrição)</option>';
+    listaPerfisCardapio.forEach(p => {
+        select.innerHTML += `<option value="${p.id}">${p.nome}</option>`;
+    });
+    if (currentVal) select.value = currentVal;
+}
+
+// --- Clientes Premium ---
+
+async function carregarClientesPremium() {
+    try {
+        const { data, error } = await sb.from('clientes_premium')
+            .select('*, perfis_cardapio(nome)')
+            .eq('empresa_id', getTenantId())
+            .order('nome');
+        if (error) throw error;
+        listaClientesPremium = data || [];
+
+        // Calcular gastos do mês para cada cliente (inclui mês atual e qualquer pedido na comanda aberta)
+        const mesAtual = new Date();
+        const inicioMes = new Date(mesAtual.getFullYear(), mesAtual.getMonth(), 1).toISOString();
+        
+        for (const cliente of listaClientesPremium) {
+            // Buscar comanda aberta do cliente
+            const { data: openComanda } = await sb.from('comandas')
+                .select('id')
+                .eq('cliente_premium_id', cliente.id)
+                .eq('status', 'aberta')
+                .maybeSingle();
+
+            let query = sb.from('orders')
+                .select('total, comanda_id')
+                .eq('cliente_premium_id', cliente.id)
+                .not('status', 'eq', 'cancelado');
+
+            if (openComanda) {
+                query = query.or(`created_at.gte.${inicioMes},comanda_id.eq.${openComanda.id}`);
+            } else {
+                query = query.gte('created_at', inicioMes);
+            }
+
+            const { data: orders } = await query;
+            cliente._gastoMes = (orders || []).reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
+        }
+
+        renderClientesPremium();
+    } catch (err) {
+        console.error('Erro ao carregar clientes premium:', err);
+    }
+}
+
+function renderClientesPremium() {
+    const tbody = document.getElementById('clientesPremiumBody');
+    if (!tbody) return;
+
+    if (listaClientesPremium.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:2rem;">Nenhum cliente premium cadastrado.</td></tr>';
+        return;
+    }
+
+    const tipoLabels = { premium: '⭐ Premium', funcionario: '👤 Funcionário', vip_diretoria: '👑 VIP Diretoria' };
+
+    tbody.innerHTML = listaClientesPremium.map(c => {
+        const teto = parseFloat(c.teto_mensal) || 0;
+        const gasto = c._gastoMes || 0;
+        const pct = teto > 0 ? Math.min(100, (gasto / teto) * 100) : 0;
+        const barColor = pct > 90 ? '#FF4757' : pct > 70 ? '#FFA502' : '#00B894';
+
+        return `
+            <tr>
+                <td><strong>${c.nome}</strong></td>
+                <td><code>${c.cpf}</code></td>
+                <td>${tipoLabels[c.tipo] || c.tipo}</td>
+                <td>${c.perfis_cardapio?.nome || '<span style="color:var(--text-muted)">Completo</span>'}</td>
+                <td>${teto > 0 ? 'R$ ' + teto.toLocaleString('pt-BR', {minimumFractionDigits:2}) : '∞'}</td>
+                <td>
+                    <div style="font-size:0.85rem; font-weight:700;">R$ ${gasto.toLocaleString('pt-BR', {minimumFractionDigits:2})}</div>
+                    ${teto > 0 ? `<div style="background:rgba(255,255,255,0.1); border-radius:50px; height:6px; margin-top:4px; overflow:hidden;"><div style="width:${pct}%; height:100%; background:${barColor}; border-radius:50px;"></div></div>` : ''}
+                </td>
+                <td style="text-align:center;">
+                    <div style="display:flex; gap:8px; justify-content:center;">
+                        <button class="btn-primary btn-sm" onclick="abrirModalClientePremium('${c.id}')" title="Editar">✏️</button>
+                        <button class="btn-icon" title="Ver Comanda" onclick="abrirComandaPremium('${c.id}')" style="color:var(--accent-gold);">📋</button>
+                        <button class="btn-cancel btn-sm" onclick="excluirClientePremium('${c.id}', '${c.nome}')" title="Excluir">🗑️</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+window.abrirModalClientePremium = async (id = null) => {
+    const title = document.getElementById('clientePremiumModalTitle');
+    const inputId = document.getElementById('clientePremiumId');
+    const inputNome = document.getElementById('cpNome');
+    const inputCpf = document.getElementById('cpCpf');
+    const inputTelefone = document.getElementById('cpTelefone');
+    const inputPin = document.getElementById('cpPin');
+    const inputTipo = document.getElementById('cpTipo');
+    const inputPerfil = document.getElementById('cpPerfil');
+    const inputTeto = document.getElementById('cpTeto');
+    const dicaPin = document.getElementById('cpPinDica');
+
+    // Garantir que os perfis estejam carregados
+    await carregarPerfisCardapio();
+
+    inputId.value = id || '';
+    inputNome.value = '';
+    inputCpf.value = '';
+    inputTelefone.value = '';
+    inputPin.value = '';
+    inputTipo.value = 'premium';
+    inputPerfil.value = '';
+    inputTeto.value = '';
+
+    if (id) {
+        title.textContent = 'Editar Cliente Premium';
+        const c = listaClientesPremium.find(x => x.id === id);
+        if (c) {
+            inputNome.value = c.nome;
+            inputCpf.value = c.cpf;
+            inputTelefone.value = c.telefone || '';
+            inputTipo.value = c.tipo || 'premium';
+            inputPerfil.value = c.perfil_cardapio_id || '';
+            inputTeto.value = c.teto_mensal || '';
+        }
+        dicaPin.textContent = 'Deixe em branco para manter o PIN atual.';
+    } else {
+        title.textContent = 'Novo Cliente Premium';
+        dicaPin.textContent = 'PIN obrigatório para novos cadastros.';
+    }
+
+    abrirModal('modalClientePremium');
+};
+
+document.getElementById('btnSalvarClientePremium').onclick = async () => {
+    const id = document.getElementById('clientePremiumId').value;
+    const nome = document.getElementById('cpNome').value.trim();
+    const cpf = document.getElementById('cpCpf').value.trim().replace(/\D/g, '');
+    const telefone = document.getElementById('cpTelefone').value.trim();
+    const pinRaw = document.getElementById('cpPin').value;
+    const tipo = document.getElementById('cpTipo').value;
+    const perfilId = document.getElementById('cpPerfil').value || null;
+    const teto = parseFloat(document.getElementById('cpTeto').value) || 0;
+
+    if (!nome || !cpf) { showToast('Nome e CPF são obrigatórios', 'warning'); return; }
+    if (cpf.length !== 11) { showToast('CPF deve ter 11 dígitos', 'warning'); return; }
+    const telefoneLimpo = telefone.replace(/\D/g, '');
+    if (!telefoneLimpo || telefoneLimpo.length !== 11) { showToast('O telefone deve ter exatamente 11 números', 'warning'); return; }
+    if (!id && !pinRaw) { showToast('O PIN é obrigatório para novos cadastros', 'warning'); return; }
+    if (pinRaw && (pinRaw.length < 4 || pinRaw.length > 6)) { showToast('O PIN deve ter entre 4 e 6 dígitos', 'warning'); return; }
+
+    const btn = document.getElementById('btnSalvarClientePremium');
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+
+    try {
+        const payload = {
+            nome, cpf, telefone, tipo,
+            perfil_cardapio_id: perfilId,
+            teto_mensal: teto,
+            empresa_id: getTenantId(),
+            pin_hash: true
+        };
+
+        if (pinRaw) {
+            payload.pin = await hashSenha(pinRaw);
+        }
+
+        let res;
+        if (id) {
+            res = await sb.from('clientes_premium').update(payload).eq('id', id);
+        } else {
+            res = await sb.from('clientes_premium').insert(payload);
+        }
+
+        if (res.error) {
+            if (res.error.message.includes('unique') || res.error.message.includes('duplicate')) {
+                showToast('Este CPF já está cadastrado como cliente premium', 'error');
+            } else {
+                showToast('Erro ao salvar: ' + res.error.message, 'error');
+            }
+        } else {
+            showToast('Cliente premium salvo!', 'success');
+            fecharModal('modalClientePremium');
+            carregarClientesPremium();
+        }
+    } catch (err) {
+        showToast('Erro: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Salvar';
+    }
+};
+
+window.excluirClientePremium = async (id, nome) => {
+    if (!await customConfirm('Excluir Cliente Premium', `Deseja remover ${nome}? As comandas associadas também serão afetadas.`)) return;
+    const { error } = await sb.from('clientes_premium').delete().eq('id', id);
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); }
+    else { showToast('Cliente removido!', 'success'); carregarClientesPremium(); }
+};
+
+function initModuloClientesPremium() {
+    if (!isModuloAtivo('clientes_premium')) return;
+    carregarPerfisCardapio();
+    carregarClientesPremium();
+}
+
+// ============================================================
+// MÓDULO COMANDAS PREMIUM
+// ============================================================
+
+async function abrirComandaPremium(clienteId) {
+    const cliente = listaClientesPremium.find(c => c.id === clienteId);
+    if (!cliente) return;
+
+    document.getElementById('comandaClienteNome').textContent = '👑 ' + cliente.nome;
+    document.getElementById('comandaModalTitle').textContent = '📋 Comanda — ' + cliente.nome.split(' ')[0];
+
+    // Buscar comanda aberta
+    const { data: comanda, error } = await sb.from('comandas')
+        .select('*')
+        .eq('cliente_premium_id', clienteId)
+        .eq('status', 'aberta')
+        .order('aberta_em', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error) { console.error('Erro ao buscar comanda:', error); return; }
+
+    const btnFechar = document.getElementById('btnFecharComanda');
+
+    if (!comanda) {
+        document.getElementById('comandaStatus').innerHTML = '<span style="color:var(--text-muted);">Sem comanda aberta</span>';
+        document.getElementById('comandaPedidosLista').innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:2rem;">Nenhuma comanda aberta para este cliente.</p>';
+        document.getElementById('comandaTotalValor').textContent = 'R$ 0,00';
+        btnFechar.style.display = 'none';
+        abrirModal('modalComandaPremium');
+        return;
+    }
+
+    document.getElementById('comandaStatus').innerHTML = '<span style="background:rgba(52,211,153,0.15); color:#34d399; padding:3px 10px; border-radius:6px; font-size:0.8rem; font-weight:700;">ABERTA</span>';
+    document.getElementById('comandaTotalValor').textContent = formatCurrency(comanda.total_acumulado || 0);
+    btnFechar.style.display = '';
+
+    // Buscar pedidos da comanda
+    const { data: pedidos } = await sb.from('orders')
+        .select('id, total, created_at, status, order_items(product_name, quantity, unit_price)')
+        .eq('comanda_id', comanda.id)
+        .order('created_at', { ascending: false });
+
+    const lista = document.getElementById('comandaPedidosLista');
+    if (!pedidos || pedidos.length === 0) {
+        lista.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:1rem;">Comanda aberta, mas sem pedidos ainda.</p>';
+    } else {
+        lista.innerHTML = pedidos.map(p => {
+            const hora = new Date(p.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+            const itens = (p.order_items || []).map(i => `<div style="font-size:0.85rem; color:var(--text-muted); padding-left:10px;">• ${i.quantity}x ${i.product_name} — ${formatCurrency(i.unit_price * i.quantity)}</div>`).join('');
+            return `
+                <div style="padding:10px; margin-bottom:8px; background:var(--bg-input); border-radius:8px; border:1px solid var(--border-default);">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                        <span style="font-weight:700; font-size:0.85rem;">#${p.id.slice(0,8)}</span>
+                        <span style="color:var(--text-muted); font-size:0.8rem;">${hora}</span>
+                    </div>
+                    ${itens}
+                    <div style="text-align:right; margin-top:6px; font-weight:700; color:var(--accent-gold);">${formatCurrency(p.total)}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // Configurar botão de fechamento
+    btnFechar.onclick = async () => {
+        if (!confirm('Deseja encerrar esta comanda? O cliente precisará abrir uma nova para novos pedidos.')) return;
+        const { error: closeErr } = await sb.from('comandas').update({
+            status: 'fechada',
+            fechada_em: new Date().toISOString(),
+            fechada_por: window.adminUsuario || 'admin'
+        }).eq('id', comanda.id);
+        if (closeErr) { showToast('Erro ao fechar comanda: ' + closeErr.message, 'error'); return; }
+        showToast('Comanda encerrada com sucesso!', 'success');
+        fecharModal('modalComandaPremium');
+        carregarClientesPremium();
+    };
+
+    abrirModal('modalComandaPremium');
+}
+
+// ============================================================
+// MÓDULO CLIENTES PREMIUM - DASHBOARD E RELATÓRIOS (FASE 8)
+// ============================================================
+window.__PREMIUM_DASH = {
+    comandasFechadas: [],
+
+    init: () => {
+        const inputInicio = document.getElementById('dashPremiumDataInicio');
+        const inputFim = document.getElementById('dashPremiumDataFim');
+        if (inputInicio && !inputInicio.value) {
+            const dataAtual = new Date();
+            const primeiroDia = new Date(dataAtual.getFullYear(), dataAtual.getMonth(), 1);
+            // Formatar YYYY-MM-DD local
+            inputInicio.value = primeiroDia.toISOString().split('T')[0];
+            inputFim.value = dataAtual.toISOString().split('T')[0];
+        }
+        
+        // Atrelar clique da aba para carregar dados ao abrir
+        const tabDashboard = document.getElementById('nav-sub-premium-dashboard');
+        if (tabDashboard) {
+            tabDashboard.addEventListener('click', () => {
+                window.__PREMIUM_DASH.carregarFiltros();
+                // Pequeno atraso para garantir que a UI carregou a aba
+                setTimeout(() => window.__PREMIUM_DASH.carregarDashboardPremium(), 100);
+            });
+        }
+    },
+
+    carregarFiltros: () => {
+        // Perfis
+        const selPerfil = document.getElementById('dashPremiumFiltroPerfil');
+        if (selPerfil) {
+            const val = selPerfil.value;
+            selPerfil.innerHTML = '<option value="">Todos os perfis</option>';
+            if (typeof listaPerfisCardapio !== 'undefined') {
+                listaPerfisCardapio.forEach(p => {
+                    selPerfil.innerHTML += `<option value="${p.id}">${p.nome}</option>`;
+                });
+            }
+            selPerfil.value = val;
+        }
+
+        // Clientes
+        const listCliente = document.getElementById('listaPremiumClientesVIP');
+        if (listCliente) {
+            listCliente.innerHTML = '';
+            if (typeof listaClientesPremium !== 'undefined') {
+                listaClientesPremium.forEach(c => {
+                    listCliente.innerHTML += `<option value="${c.nome}"></option>`;
+                });
+            }
+        }
+    },
+
+    carregarDashboardPremium: async () => {
+        try {
+            const dataInicio = document.getElementById('dashPremiumDataInicio').value;
+            const dataFim = document.getElementById('dashPremiumDataFim').value;
+            const status = document.getElementById('dashPremiumFiltroStatus').value;
+            const clienteStr = document.getElementById('dashPremiumFiltroCliente').value.trim().toLowerCase();
+            const perfilId = document.getElementById('dashPremiumFiltroPerfil').value;
+            
+            if (!dataInicio || !dataFim) {
+                showToast('Selecione as datas de início e fim.', 'warning');
+                return;
+            }
+
+            // Preparar filtro gte e lte cobrindo o dia todo
+            const inicioAjustado = dataInicio + 'T00:00:00.000Z';
+            const fimAjustado = dataFim + 'T23:59:59.999Z';
+
+            let query = sb.from('comandas')
+                .select('*, clientes_premium(nome, cpf, perfil_cardapio_id)')
+                .eq('empresa_id', getTenantId())
+                .gte('aberta_em', inicioAjustado)
+                .lte('aberta_em', fimAjustado)
+                .order('aberta_em', { ascending: false });
+
+            if (status) {
+                query = query.eq('status', status);
+            }
+
+            const { data, error } = await query;
+            if (error) throw error;
+            
+            let comandas = data || [];
+            
+            // Filtrar perfil em JS
+            if (perfilId) {
+                comandas = comandas.filter(c => c.clientes_premium && c.clientes_premium.perfil_cardapio_id === perfilId);
+            }
+
+            // Filtrar cliente em JS (Busca parcial)
+            if (clienteStr) {
+                comandas = comandas.filter(c => c.clientes_premium && c.clientes_premium.nome.toLowerCase().includes(clienteStr));
+            }
+
+            window.__PREMIUM_DASH.comandasFechadas = comandas;
+            window.__PREMIUM_DASH.render();
+        } catch (err) {
+            console.error('Erro ao carregar dashboard premium:', err);
+            showToast('Erro ao buscar dados do dashboard.', 'error');
+        }
+    },
+
+    render: () => {
+        const comandas = window.__PREMIUM_DASH.comandasFechadas;
+        
+        let totalGasto = 0;
+        let totalComandas = comandas.length;
+        let clientesMap = {};
+
+        // Processar comandas
+        comandas.forEach(c => {
+            const valor = parseFloat(c.total_acumulado || 0);
+            totalGasto += valor;
+            
+            const clienteId = c.cliente_premium_id;
+            if (!clientesMap[clienteId]) {
+                clientesMap[clienteId] = {
+                    nome: c.clientes_premium ? c.clientes_premium.nome : 'Desconhecido',
+                    cpf: c.clientes_premium ? c.clientes_premium.cpf : '',
+                    total: 0
+                };
+            }
+            clientesMap[clienteId].total += valor;
+        });
+
+        const ticketMedio = totalComandas > 0 ? (totalGasto / totalComandas) : 0;
+
+        // Atualizar Cards
+        document.getElementById('dashPremiumTotalGasto').textContent = formatCurrency(totalGasto);
+        document.getElementById('dashPremiumTotalComandas').textContent = totalComandas;
+        document.getElementById('dashPremiumTicketMedio').textContent = formatCurrency(ticketMedio);
+
+        // Ranking (Top 10)
+        const ranking = Object.values(clientesMap).sort((a, b) => b.total - a.total).slice(0, 10);
+        const rankingBody = document.getElementById('dashPremiumRankingBody');
+        if (ranking.length === 0) {
+            rankingBody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">Nenhum dado encontrado para o período.</td></tr>';
+        } else {
+            rankingBody.innerHTML = ranking.map((cli, index) => `
+                <tr>
+                    <td><strong>#${index + 1}</strong></td>
+                    <td>${cli.nome}</td>
+                    <td style="color:var(--accent-gold); font-weight:bold;">${formatCurrency(cli.total)}</td>
+                </tr>
+            `).join('');
+        }
+
+        // Relatório Tabela
+        const relatorioBody = document.getElementById('dashPremiumComandasBody');
+        if (comandas.length === 0) {
+            relatorioBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">Nenhuma comanda encontrada para o período.</td></tr>';
+        } else {
+            relatorioBody.innerHTML = comandas.map(c => {
+                const dataExibicao = new Date(c.aberta_em).toLocaleString('pt-BR');
+                const clienteNome = c.clientes_premium ? c.clientes_premium.nome : 'Desconhecido';
+                const clienteCpf = c.clientes_premium ? c.clientes_premium.cpf : '';
+                
+                const statusBadge = c.status === 'aberta' 
+                    ? '<span style="background:rgba(52,211,153,0.15); color:#34d399; padding:3px 8px; border-radius:4px; font-size:0.8rem;">Aberta</span>'
+                    : '<span style="background:rgba(229,178,93,0.1); color:var(--primary); padding:3px 8px; border-radius:4px; font-size:0.8rem;">Fechada</span>';
+
+                return `
+                    <tr>
+                        <td>${dataExibicao}</td>
+                        <td>${clienteNome}</td>
+                        <td>${clienteCpf}</td>
+                        <td style="font-weight:bold;">${formatCurrency(c.total_acumulado)}</td>
+                        <td>${statusBadge}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    },
+
+    exportarRelatorioPremiumExcel: () => {
+        const comandas = window.__PREMIUM_DASH.comandasFechadas;
+        if (comandas.length === 0) {
+            showToast('Sem dados para exportar.', 'warning');
+            return;
+        }
+
+        if (typeof XLSX === 'undefined') {
+            showToast('Biblioteca do Excel ainda está carregando. Tente novamente.', 'warning');
+            return;
+        }
+
+        const dadosExcel = comandas.map(c => {
+            const dataExibicao = new Date(c.aberta_em).toLocaleString('pt-BR');
+            const clienteNome = c.clientes_premium ? c.clientes_premium.nome : '';
+            const clienteCpf = c.clientes_premium ? c.clientes_premium.cpf : '';
+            const total = parseFloat(c.total_acumulado || 0);
+            const status = c.status === 'aberta' ? 'Aberta' : 'Fechada';
+            
+            return {
+                "Data/Hora": dataExibicao,
+                "Cliente": clienteNome,
+                "CPF": clienteCpf,
+                "Total": total,
+                "Status": status
+            };
+        });
+
+        const ws = XLSX.utils.json_to_sheet(dadosExcel);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Relatorio Premium");
+
+        XLSX.writeFile(wb, `Relatorio_Premium_${new Date().toISOString().split('T')[0]}.xlsx`);
+    },
+
+    imprimirRelatorioPremium: () => {
+        window.print();
+    }
+};
+
+// Iniciar a UI do Dashboard Premium quando o script carrega
+setTimeout(() => {
+    if (window.__PREMIUM_DASH) window.__PREMIUM_DASH.init();
+}, 1000);

@@ -1,0 +1,720 @@
+/**
+ * tenant.js — Contexto Multi-Tenant (v2)
+ * =========================================
+ * Identifica a empresa automaticamente via SUBDOMÍNIO da URL.
+ *
+ * Exemplos:
+ *   cliente1.meusistema.com  → slug = "cliente1"
+ *   cliente2.meusistema.com  → slug = "cliente2"
+ *   localhost / 127.0.0.1    → slug = "teste" (fallback dev)
+ *   ?loja=slug               → fallback legacy (querystring)
+ *
+ * Passos implementados:
+ *   1. Captura slug via subdomínio (ou fallback)
+ *   2. Busca empresa no Supabase (1x, cacheado)
+ *   3. Armazena em window.empresa e window.TENANT
+ *   4. Aplica white-label (CSS vars, logo, nome)
+ *   5. Mostra tela de erro se empresa não encontrada
+ *   6. getTenantId() usado em todos INSERTs/SELECTs
+ *
+ * SEGURANÇA: O frontend usa empresa_id apenas como contexto.
+ * O RLS do Supabase valida e garante o isolamento real.
+ */
+
+const _TENANT_LOADING_CLASS = 'tenant-loading';
+const _TENANT_READY_CLASS = 'tenant-ready';
+document.documentElement.classList.add(_TENANT_LOADING_CLASS);
+
+function _createTenantLoader() {
+    if (!document.body || document.body.querySelector('.tenant-loader')) return;
+
+    const style = document.createElement('style');
+    style.textContent = `
+        html.tenant-loading body > :not(.tenant-loader) {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            user-select: none !important;
+        }
+        html.tenant-loading .tenant-loader {
+            position: fixed !important;
+            inset: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background: #080808 !important;
+            color: #fff !important;
+            z-index: 99999 !important;
+            font-family: 'Inter', sans-serif !important;
+        }
+        html.tenant-ready .tenant-loader {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            position: fixed !important;
+            inset: 0 !important;
+            transition: opacity 250ms ease-in-out !important;
+            display: none !important; /* Em navegadores modernos isso pode quebrar a transição, mas aqui vamos garantir que ele suma */
+        }
+        /* Garantir que ele suma do fluxo de qualquer forma */
+        .tenant-loader {
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 99999 !important;
+        }
+        .tenant-loader-inner {
+            text-align: center;
+            max-width: 320px;
+            padding: 1.5rem 1.75rem;
+            border-radius: 24px;
+            background: rgba(15, 15, 15, 0.94);
+            box-shadow: 0 18px 45px rgba(0,0,0,0.35);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .tenant-loader-spinner {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            border: 4px solid rgba(255,255,255,0.16);
+            border-top-color: #E5B25D;
+            animation: tenant-spinner 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes tenant-spinner {
+            to { transform: rotate(360deg); }
+        }
+    `;
+    document.head.appendChild(style);
+
+    const loader = document.createElement('div');
+    loader.className = 'tenant-loader';
+    loader.setAttribute('aria-live', 'polite');
+    loader.innerHTML = `
+        <div class="tenant-loader-inner">
+            <div class="tenant-loader-spinner"></div>
+            <div>CARREGANDO</div>
+        </div>
+    `;
+    document.body.insertAdjacentElement('afterbegin', loader);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _createTenantLoader);
+} else {
+    _createTenantLoader();
+}
+
+let _tenantLoadFallback = setTimeout(() => {
+    if (document.documentElement.classList.contains(_TENANT_LOADING_CLASS)) {
+        console.warn('[Tenant] Exibindo página após timeout de fallback.');
+        _finalizarCarregamentoTenant();
+    }
+}, 5000);
+
+function _finalizarCarregamentoTenant() {
+    clearTimeout(_tenantLoadFallback);
+    document.documentElement.classList.remove(_TENANT_LOADING_CLASS);
+    document.documentElement.classList.add(_TENANT_READY_CLASS);
+}
+
+// ================================================================
+// PASSO 1: CAPTURAR O SLUG DA EMPRESA A PARTIR DA URL
+// ================================================================
+function _resolverSlug() {
+    const hostname = window.location.hostname;
+    const pathname = window.location.pathname;
+
+    // 1. Tentar da Querystring - Ex: ?loja=slug ou ?tenant=slug (Útil para debug)
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramSlug = urlParams.get('loja') || urlParams.get('tenant');
+    if (paramSlug) return paramSlug;
+
+    // 2. Tentar pegar da Rota (Pathname) - Ex: meusite.com/slug/cardapio
+    const pathSegments = pathname.split('/').filter(p => p);
+    // Ignora arquivos estáticos
+    if (pathSegments.length > 0 && !pathSegments[0].includes('.html')) {
+        return pathSegments[0];
+    }
+
+    // 3. Tentar Subdomínio - Ex: slug.meusistema.com
+    const partes = hostname.split('.');
+    if (partes.length >= 3 && hostname !== '127.0.0.1') {
+        return partes[0];
+    }
+
+    // Fallback para ambiente local
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.');
+    if (isLocal) {
+        console.warn('[Tenant] Ambiente local — usando slug de desenvolvimento: "TesteRiverTech"');
+        return 'TesteRiverTech';
+    }
+
+    console.error('[Tenant] Não foi possível determinar o slug a partir de:', hostname, pathname);
+    return null;
+}
+
+// ================================================================
+// ESTADO GLOBAL DO TENANT (único ponto de verdade)
+// ================================================================
+window.TENANT = {
+    empresa_id: null,
+    slug: null,
+    nome: null,
+    cor_primaria: null,
+    logo_url: null,
+    brand_name: null,
+    brand_subtitle: null,
+    modulos: {},
+    segmento: null,
+    pronto: false,
+    tema_cor_primaria: null,
+    tema_cor_secundaria: null,
+    tema_cor_botao: null,
+    tema_cor_bg: null,
+    tema_cor_surface: null,
+    tema_cor_borda: null,
+    tema_cor_texto: null,
+    tema_cor_hover: null,
+};
+
+// window.empresa — alias para compatibilidade com código legado
+window.empresa = null;
+
+function invalidateTenantCache() {
+    _tenantPromise = null;
+    if (!window.TENANT) {
+        window.TENANT = {};
+    }
+    window.TENANT.empresa_id = null;
+    window.TENANT.slug = null;
+    window.TENANT.nome = null;
+    window.TENANT.cor_primaria = null;
+    window.TENANT.logo_url = null;
+    window.TENANT.brand_name = null;
+    window.TENANT.brand_subtitle = null;
+    window.TENANT.modulos = {};
+    window.TENANT.segmento = null;
+    window.TENANT.pronto = false;
+    window.TENANT.tema_cor_primaria = null;
+    window.TENANT.tema_cor_secundaria = null;
+    window.TENANT.tema_cor_botao = null;
+    window.TENANT.tema_cor_bg = null;
+    window.TENANT.tema_cor_surface = null;
+    window.TENANT.tema_cor_borda = null;
+    window.TENANT.tema_cor_texto = null;
+    window.TENANT.tema_cor_hover = null;
+    window.empresa = null;
+    console.info('[Tenant] Cache do tenant invalidado.');
+}
+window.invalidateTenantCache = invalidateTenantCache;
+
+// Promise de inicialização (evita múltiplas chamadas ao banco)
+let _tenantPromise = null;
+
+/**
+ * Converte um hex (#RRGGBB) em rgba(r,g,b,alpha).
+ * Usado para gerar as variantes de opacidade automaticamente.
+ */
+function _hexToRgba(hex, alpha) {
+    if (!hex || !hex.startsWith('#')) return hex;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    if (isNaN(r)) return hex;
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/**
+ * Escurece uma cor hex em uma porcentagem (0-100).
+ * Usado para gerar automaticamente o hover da cor primária.
+ */
+function _darkenHex(hex, percent) {
+    if (!hex || !hex.startsWith('#')) return hex;
+    const r = Math.max(0, parseInt(hex.slice(1,3),16) - Math.round(2.55*percent));
+    const g = Math.max(0, parseInt(hex.slice(3,5),16) - Math.round(2.55*percent));
+    const b = Math.max(0, parseInt(hex.slice(5,7),16) - Math.round(2.55*percent));
+    return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
+// ================================================================
+// PASSO 5: APLICAR WHITE-LABEL (CSS VARS + LOGO + NOME)
+// ================================================================
+function _aplicarWhiteLabel(data) {
+    const set = (v, val) => { if (val) document.documentElement.style.setProperty(v, val); };
+
+    const primaria   = data.tema_cor_primaria   || data.cor_primaria || '#E5B25D';
+    const botao      = data.tema_cor_botao       || '#E5B25D';
+    const texto      = data.tema_cor_texto       || '#ffffff';
+    const bg         = data.tema_cor_bg          || '#0d0d0d';
+    const surface    = data.tema_cor_surface      || '#1a1a1a';
+    const borda      = data.tema_cor_borda        || _hexToRgba(primaria, 0.2);
+    const hover      = data.tema_cor_hover        || _darkenHex(botao, 8);
+    const brandName  = data.brand_name || data.nome || 'RiverTech';
+    const brandSubtitle = data.brand_subtitle || '';
+
+    set('--color-primary',        primaria);
+    set('--color-primary-hover',  hover);
+    set('--color-primary-10',     _hexToRgba(primaria, 0.10));
+    set('--color-primary-30',     _hexToRgba(primaria, 0.30));
+    set('--color-bg',             bg);
+    set('--color-surface',        surface);
+    set('--color-border',         borda);
+    set('--color-text',           texto);
+    set('--text-main',            texto);
+
+    set('--color-button',         botao);
+    set('--color-button-bg',      botao);
+    set('--btn-bg',               botao);
+    set('--color-button-text',    texto);
+    set('--btn-text',             texto);
+    set('--color-button-hover',   hover);
+    set('--btn-hover',            hover);
+
+    // Variáveis Semânticas (Arquitetura Premium)
+    set('--bg-page',              bg);
+    set('--bg-card',              surface);
+    set('--bg-input',             surface);
+    set('--text-primary',         texto);
+    set('--accent-primary',       primaria);
+    set('--accent-primary-hover', data.tema_cor_hover || _darkenHex(primaria, 8));
+    set('--border-default',       borda);
+    set('--btn-primary-bg',       botao);
+    set('--btn-primary-text',     texto);
+    set('--btn-primary-hover',    hover);
+
+    set('--primary',       primaria);
+    set('--primary-hover', data.tema_cor_hover || _darkenHex(primaria, 8));
+    set('--bg-body',       bg);
+    set('--border-color',  borda);
+
+    set('--accent-waiter', primaria);
+    set('--bg-waiter',     bg);
+    set('--card-waiter',   surface);
+    set('--btn-waiter-bg',   botao);
+    set('--btn-waiter-text', texto);
+
+    if (data.logo_url) {
+        const logos = document.querySelectorAll('.logo-main, #logoEmpresa');
+        logos.forEach(el => {
+            if (el.tagName === 'IMG') {
+                el.src = data.logo_url;
+                el.alt = brandName || 'Logo';
+            } else {
+                el.style.backgroundImage = `url(${data.logo_url})`;
+                el.style.backgroundSize = 'contain';
+                el.style.backgroundRepeat = 'no-repeat';
+                el.style.backgroundPosition = 'center';
+            }
+        });
+    }
+
+    if (brandName) {
+        const firstWord = brandName.split(/\s/)[0];
+        const nomes = document.querySelectorAll('.brand-name, #brandName');
+        nomes.forEach(el => {
+            el.textContent = brandName;
+            el.setAttribute('data-short', firstWord);
+        });
+        document.title = `${brandName} | Sistema`;
+    }
+
+    if (brandSubtitle) {
+        const subtitles = document.querySelectorAll('.brand-subtitle');
+        subtitles.forEach(el => { el.textContent = brandSubtitle; });
+    }
+
+    // Mostrar body após aplicar tema para evitar flash
+    _finalizarCarregamentoTenant();
+
+    // Aplicar classe de tema via ThemeManager (baseado no segmento)
+    const SEGMENTO_THEME_MAP = {
+        restaurante: 'restaurant',
+        barbearia:   'barbershop',
+        loja_roupas: 'clothing'
+    };
+    const themeClass = SEGMENTO_THEME_MAP[data.segmento] || null;
+    if (themeClass && window.themeManager) {
+        window.themeManager.updateTheme(themeClass);
+        console.info('[Tenant] 🎨 Theme class aplicada:', themeClass);
+    }
+
+    console.info('[Tenant] ✅ Tema aplicado:', primaria, '| Empresa:', brandName);
+}
+
+// ================================================================
+// PASSO 6: TELA DE ERRO — EMPRESA NÃO ENCONTRADA
+// ================================================================
+function _mostrarTelaNaoEncontrada(slug) {
+    _finalizarCarregamentoTenant();
+    // Garante que o body seja exibido mesmo se estiver oculto
+    document.body.style.display = 'flex';
+    document.body.style.flexDirection = 'column';
+    document.body.style.alignItems = 'center';
+    document.body.style.justifyContent = 'center';
+    document.body.style.minHeight = '100vh';
+    document.body.style.background = '#0d0d0d';
+    document.body.style.color = '#fff';
+    document.body.style.fontFamily = 'Inter, sans-serif';
+    document.body.style.padding = '2rem';
+
+    document.body.innerHTML = `
+        <div style="text-align:center; max-width: 400px;">
+            <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
+            <h1 style="font-size: 1.5rem; margin-bottom: 0.5rem; color: #fff;">Loja não encontrada</h1>
+            <p style="color: #999; font-size: 0.95rem; line-height: 1.6;">
+                Não encontramos nenhuma loja associada ao endereço
+                <code style="background:#1a1a1a; padding: 2px 8px; border-radius: 4px; color: #e5b25d;">${slug || window.location.hostname}</code>.
+            </p>
+            <p style="color: #666; font-size: 0.8rem; margin-top: 1.5rem;">
+                Verifique o link ou entre em contato com o suporte.
+            </p>
+        </div>
+    `;
+}
+
+// ================================================================
+// PASSO 2 + 3: BUSCAR EMPRESA E ARMAZENAR GLOBALMENTE
+// Função principal — chamada apenas 1x, resultado cacheado.
+// ================================================================
+async function initTenantPublico(supabaseClient, forceRefresh = false) {
+    if (forceRefresh) {
+        invalidateTenantCache();
+    }
+
+    // Cache: se já foi carregado e não for forçado, retorna imediatamente
+    if (window.TENANT.pronto) return window.TENANT.empresa_id;
+
+    // Evita múltiplas chamadas simultâneas ao banco
+    if (_tenantPromise) return _tenantPromise;
+
+    _tenantPromise = (async () => {
+        // PASSO 1 — Resolver slug
+        const slug = _resolverSlug();
+        if (!slug) {
+            _mostrarTelaNaoEncontrada(null);
+            return null;
+        }
+
+        console.info('[Tenant] Buscando empresa para slug:', slug);
+
+        // PASSO 2 — Buscar no Supabase
+        // Usamos .ilike para ser case-insensitive no slug (evita erros de digitação)
+        let query = supabaseClient
+            .from('empresas')
+            .select('id, nome, slug, cor_primaria, logo_url, status, modulos, tema_cor_primaria, tema_cor_secundaria, tema_cor_botao, tema_cor_bg, tema_cor_surface, tema_cor_borda, tema_cor_texto, tema_cor_hover')
+            .ilike('slug', slug);
+
+        // Se estiver em produção, só permitimos empresas ativas
+        const hostname = window.location.hostname;
+        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.');
+        if (!isLocal) {
+            query = query.eq('status', 'ativo');
+        }
+
+        let { data, error } = await query.single();
+
+        if (error && error.code === 'PGRST204') { // Colunas faltando ou erro de estrutura
+            console.warn('[Tenant] Erro ao buscar colunas de tema, tentando busca simplificada...');
+            let retryQuery = supabaseClient
+                .from('empresas')
+                .select('id, nome, slug, cor_primaria, logo_url, status')
+                .ilike('slug', slug);
+            
+            if (!isLocal) retryQuery = retryQuery.eq('status', 'ativo');
+            
+            const retry = await retryQuery.single();
+            data = retry.data;
+            error = retry.error;
+        }
+
+        // PASSO 6 — Tratar empresa não encontrada
+        if (error || !data) {
+            console.error('[Tenant] Erro fatal: Empresa não encontrada ou erro no banco:', slug, error?.message);
+            _mostrarTelaNaoEncontrada(slug);
+            return null;
+        }
+
+        // PASSO 3 — Armazenar globalmente (incluindo tema)
+        window.TENANT.empresa_id       = data.id;
+        window.TENANT.slug             = data.slug;
+        window.TENANT.nome             = data.nome;
+        window.TENANT.cor_primaria     = data.cor_primaria;
+        window.TENANT.logo_url         = data.logo_url;
+        window.TENANT.modulos          = data.modulos || {};
+        window.TENANT.tema_cor_primaria   = data.tema_cor_primaria;
+        window.TENANT.tema_cor_secundaria = data.tema_cor_secundaria;
+        window.TENANT.tema_cor_botao      = data.tema_cor_botao;
+        window.TENANT.tema_cor_bg         = data.tema_cor_bg;
+        window.TENANT.tema_cor_surface    = data.tema_cor_surface;
+        window.TENANT.tema_cor_borda      = data.tema_cor_borda;
+        window.TENANT.tema_cor_texto      = data.tema_cor_texto;
+        window.TENANT.tema_cor_hover      = data.tema_cor_hover;
+        window.TENANT.pronto           = true;
+
+        // Alias window.empresa para compatibilidade
+        window.empresa = {
+            id:           data.id,
+            nome:         data.nome,
+            cor_primaria: data.cor_primaria,
+            logo_url:     data.logo_url,
+        };
+
+        // PASSO 5 — Aplicar white-label imediatamente
+        _aplicarWhiteLabel(data);
+
+        console.info('[Tenant] ✅ Empresa carregada:', data.nome, '|', data.id);
+        return data.id;
+    })();
+
+    return _tenantPromise;
+}
+
+// ================================================================
+// TENANT PARA O ADMIN (usa auth.uid() → tabela usuarios)
+// ================================================================
+async function initTenantAdmin(supabaseClient, userId) {
+    // Removemos o cache inseguro que permitia login de outros usuários na mesma sessão
+    // if (window.TENANT.pronto) return window.TENANT.empresa_id;
+
+    // Tentamos primeiro com o tema completo
+    let { data, error } = await supabaseClient
+        .from('usuarios')
+        .select('empresa_id, role, email, empresas(id, nome, slug, cor_primaria, logo_url, status, modulos, segmento, tema_cor_primaria, tema_cor_secundaria, tema_cor_botao, tema_cor_bg, tema_cor_surface, tema_cor_borda, tema_cor_texto, tema_cor_hover)')
+        .eq('id', userId)
+        .limit(1);
+    
+    // Transforma array em single
+    if (data && data.length > 0) {
+        data = data[0];
+    } else if (data && data.length === 0) {
+        error = { code: 'PGRST116', message: 'Result contains 0 rows' };
+        data = null;
+    }
+
+    if (error && error.code === 'PGRST204') {
+        console.warn('[Tenant-Admin] Falha ao carregar colunas de tema, tentando busca básica...');
+        const retry = await supabaseClient
+            .from('usuarios')
+            .select('empresa_id, role, email, empresas(id, nome, slug, cor_primaria, logo_url, status, modulos, segmento)')
+            .eq('id', userId)
+            .limit(1);
+        
+        if (retry.data && retry.data.length > 0) {
+            data = retry.data[0];
+            error = null;
+        } else {
+            data = null;
+            error = retry.error || { code: 'PGRST116', message: 'Result contains 0 rows' };
+        }
+    }
+
+    if (error || !data) {
+        console.warn('[Tenant-Admin] Usuário não encontrado em usuarios. Tentando carregar empresa via slug...');
+        
+        // Para admins legados (admin_users), o get_empresa_id() do banco pode retornar NULL
+        // antes de a correção SQL ser aplicada, bloqueando TODAS as queries RLS.
+        // Estratégia: 
+        // 1. Tentar initTenantPublico (funciona se RLS de empresas estiver corrigida)
+        // 2. Fallback: usar RPC get_empresa_by_slug (SECURITY DEFINER, ignora RLS)
+        const slug = _resolverSlug();
+        if (slug) {
+            // Tentativa 1: initTenantPublico normal
+            invalidateTenantCache();
+            const publicResult = await initTenantPublico(supabaseClient, true);
+            if (publicResult) {
+                window.TENANT.role = 'admin';
+                console.info('[Tenant] ✅ Admin legado autenticado via slug | Empresa:', window.TENANT.nome);
+                return publicResult;
+            }
+
+            // Tentativa 2: RPC com SECURITY DEFINER (bypassa RLS)
+            console.warn('[Tenant-Admin] initTenantPublico falhou. Tentando RPC get_empresa_by_slug...');
+            try {
+                const { data: rpcData, error: rpcError } = await supabaseClient
+                    .rpc('get_empresa_by_slug', { _slug: slug });
+                
+                if (!rpcError && rpcData && rpcData.length > 0) {
+                    const emp = rpcData[0];
+                    window.TENANT.empresa_id       = emp.id;
+                    window.TENANT.slug             = emp.slug;
+                    window.TENANT.nome             = emp.nome;
+                    window.TENANT.cor_primaria     = emp.cor_primaria;
+                    window.TENANT.logo_url         = emp.logo_url;
+                    window.TENANT.modulos          = emp.modulos || {};
+                    window.TENANT.tema_cor_primaria   = emp.tema_cor_primaria;
+                    window.TENANT.tema_cor_secundaria = emp.tema_cor_secundaria;
+                    window.TENANT.tema_cor_botao      = emp.tema_cor_botao;
+                    window.TENANT.tema_cor_bg         = emp.tema_cor_bg;
+                    window.TENANT.tema_cor_surface    = emp.tema_cor_surface;
+                    window.TENANT.tema_cor_borda      = emp.tema_cor_borda;
+                    window.TENANT.tema_cor_texto      = emp.tema_cor_texto;
+                    window.TENANT.tema_cor_hover      = emp.tema_cor_hover;
+                    window.TENANT.role             = 'admin';
+                    window.TENANT.pronto           = true;
+                    window.empresa = { id: emp.id, nome: emp.nome, cor_primaria: emp.cor_primaria, logo_url: emp.logo_url };
+                    _aplicarWhiteLabel(emp);
+                    console.info('[Tenant] ✅ Admin legado autenticado via RPC | Empresa:', emp.nome);
+                    return emp.id;
+                }
+            } catch (rpcErr) {
+                console.warn('[Tenant-Admin] RPC get_empresa_by_slug não disponível:', rpcErr.message);
+            }
+        }
+        
+        // Fallback final: verificar se é Super Admin
+        console.warn('[Tenant-Admin] Todas as tentativas falharam. Verificando Super Admin...');
+        const { data: isSuper } = await supabaseClient.rpc('is_super_admin', { _user_id: userId });
+        
+        if (isSuper && slug) {
+            console.info('[Tenant-Admin] Super Admin detectado.');
+            return await initTenantPublico(supabaseClient);
+        }
+        
+        console.error('[Tenant-Admin] Erro fatal ao buscar empresa do usuário:', userId, error?.message);
+        return null;
+    }
+
+    const emp = data.empresas || {};
+
+    // Bloquear acesso se a empresa estiver inativa
+    if (emp.status === 'inativo') {
+        console.warn('[Tenant] Empresa inativa. Acesso bloqueado.');
+        return null;
+    }
+
+    // --- VALIDAÇÃO CROSS-TENANT (Prevenir acesso de admin de outra empresa) ---
+    const urlSlug = _resolverSlug();
+    if (urlSlug && urlSlug !== 'teste' && emp.slug && urlSlug !== emp.slug) {
+        console.warn(`[Tenant-Admin] Acesso cruzado bloqueado: admin da empresa '${emp.slug}' tentou acessar o painel de '${urlSlug}'.`);
+        await supabaseClient.auth.signOut();
+        throw new Error(`Acesso negado: Você não tem permissão para acessar o painel desta empresa. Seu painel correto é: /${emp.slug}`);
+    }
+
+    // PASSO 3 — Armazenar globalmente (incluindo tema e segmento)
+    window.TENANT.empresa_id         = data.empresa_id;
+    window.TENANT.slug               = emp.slug   || null;
+    window.TENANT.nome               = emp.nome   || null;
+    window.TENANT.cor_primaria       = emp.cor_primaria || null;
+    window.TENANT.logo_url           = emp.logo_url || null;
+    window.TENANT.role               = data.role;
+    window.TENANT.modulos             = emp.modulos || {};
+    window.TENANT.segmento            = emp.segmento || null;
+    window.TENANT.tema_cor_primaria   = emp.tema_cor_primaria  || null;
+    window.TENANT.tema_cor_secundaria = emp.tema_cor_secundaria || null;
+    window.TENANT.tema_cor_botao      = emp.tema_cor_botao     || null;
+    window.TENANT.tema_cor_bg         = emp.tema_cor_bg        || null;
+    window.TENANT.tema_cor_surface    = emp.tema_cor_surface   || null;
+    window.TENANT.tema_cor_borda      = emp.tema_cor_borda     || null;
+    window.TENANT.tema_cor_hover      = emp.tema_cor_hover     || null;
+    window.TENANT.pronto             = true;
+
+    window.empresa = {
+        id:           data.empresa_id,
+        nome:         emp.nome,
+        cor_primaria: emp.cor_primaria,
+        logo_url:     emp.logo_url,
+    };
+
+    // PASSO 5 — White-label no admin também (com todos os dados de tema)
+    _aplicarWhiteLabel({
+        ...emp,
+        tema_cor_primaria:   emp.tema_cor_primaria,
+        tema_cor_secundaria: emp.tema_cor_secundaria,
+        tema_cor_botao:      emp.tema_cor_botao,
+        tema_cor_bg:         emp.tema_cor_bg,
+        tema_cor_surface:    emp.tema_cor_surface,
+        tema_cor_borda:      emp.tema_cor_borda,
+        tema_cor_hover:      emp.tema_cor_hover,
+    });
+
+    console.info('[Tenant] ✅ Admin autenticado:', data.email, '| Empresa:', emp.nome);
+    return data.empresa_id;
+}
+
+/**
+ * Inicializa o tenant diretamente pelo ID da empresa.
+ * Útil para o painel do atendente que usa um sistema de login customizado.
+ */
+async function initTenantById(supabaseClient, empresaId, forceRefresh = false) {
+    if (!forceRefresh && window.TENANT.pronto && window.TENANT.empresa_id === empresaId) return empresaId;
+    if (forceRefresh) invalidateTenantCache();
+
+    const { data, error } = await supabaseClient
+        .from('empresas')
+        .select('id, nome, slug, cor_primaria, logo_url, status, modulos, tema_cor_primaria, tema_cor_secundaria, tema_cor_botao, tema_cor_bg, tema_cor_surface, tema_cor_borda, tema_cor_hover')
+        .eq('id', empresaId)
+        .single();
+
+    if (error || !data) {
+        console.error('[Tenant] Erro ao carregar empresa por ID:', empresaId, error?.message);
+        return null;
+    }
+
+    // PASSO 3 — Armazenar globalmente (incluindo tema)
+    window.TENANT.empresa_id         = data.id;
+    window.TENANT.slug               = data.slug;
+    window.TENANT.nome               = data.nome;
+    window.TENANT.cor_primaria       = data.cor_primaria;
+    window.TENANT.logo_url           = data.logo_url;
+    window.TENANT.modulos            = data.modulos || {};
+    window.TENANT.tema_cor_primaria   = data.tema_cor_primaria;
+    window.TENANT.tema_cor_secundaria = data.tema_cor_secundaria;
+    window.TENANT.tema_cor_botao      = data.tema_cor_botao;
+    window.TENANT.tema_cor_bg         = data.tema_cor_bg;
+    window.TENANT.tema_cor_surface    = data.tema_cor_surface;
+    window.TENANT.tema_cor_borda      = data.tema_cor_borda;
+    window.TENANT.tema_cor_hover      = data.tema_cor_hover;
+    window.TENANT.pronto             = true;
+
+    _aplicarWhiteLabel(data);
+
+    console.info('[Tenant] ✅ Empresa carregada por ID:', data.nome);
+    return data.id;
+}
+
+// ================================================================
+// PASSO 4 + 7: getTenantId() — RETORNA empresa_id CACHEADO
+// Use em TODOS os INSERTs, UPDATEs e SELECTs do frontend.
+// ================================================================
+function getTenantId() {
+    if (!window.TENANT.empresa_id) {
+        throw new Error(
+            '[Tenant] empresa_id não disponível.\n' +
+            'Certifique-se de que initTenantPublico() ou initTenantAdmin() foi aguardado antes desta chamada.'
+        );
+    }
+    return window.TENANT.empresa_id;
+}
+
+/**
+ * Retorna o segmento da empresa logada.
+ * Ex: 'restaurante', 'barbearia', 'loja_roupas', null
+ */
+function getSegmento() {
+    return (window.TENANT && window.TENANT.segmento) || null;
+}
+window.getSegmento = getSegmento;
+
+/**
+ * Verifica se um determinado módulo está ativo para a empresa atual.
+ * Ex: isModuloAtivo('estoque')
+ */
+function isModuloAtivo(modulo) {
+    if (!window.TENANT || !window.TENANT.pronto) return false;
+    
+    const mods = window.TENANT.modulos || {};
+    let status;
+    
+    // Fallback de segurança: se o módulo de configuração nunca foi salvo (undefined), considera true
+    const modulosCore = [
+        'config_endereco', 'config_personalizacao', 'config_frete', 'config_cancelamentos',
+        'vendas_hoje_op', 'vendas_ontem_op', 'vendas_visao_geral',
+        'produtos_gerenciar', 'produtos_categorias', 'cardapio'
+    ];
+    if (modulosCore.includes(modulo) && mods[modulo] === undefined) {
+        status = true; // backward compatibility garantindo acesso
+    } else {
+        status = mods[modulo] === true;
+    }
+    
+    return status;
+}

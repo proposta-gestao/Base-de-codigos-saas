@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RiverTech | Gestão de Empresas</title>
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192x192.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0a0b;
+            --text-main: #ffffff;
+            --text-muted: #a1a1aa;
+            --primary: #3b82f6;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            text-align: center;
+            padding: 2rem;
+            background-image: radial-gradient(circle at top, rgba(59, 130, 246, 0.15), transparent 50%);
+        }
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(90deg, #fff, #a1a1aa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        p {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            max-width: 500px;
+            line-height: 1.6;
+            margin-bottom: 2.5rem;
+        }
+        .btn {
+            display: inline-block;
+            background: var(--primary);
+            color: #fff;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1.1rem;
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            background: #2563eb;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
+        }
+        .login-link {
+            display: block;
+            margin-top: 2rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.95rem;
+        }
+        .login-link:hover { color: #fff; text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+    <h1>RiverTech Gestão</h1>
+    <p>O sistema definitivo de gestão para o seu negócio.</p>
+    
+    <a href="https://wa.me/5531975540280" class="btn" target="_blank">Falar com Consultor</a>
+
+    <a href="/master-saas" class="login-link">Acesso Restrito</a>
+
+</body>
+</html>
